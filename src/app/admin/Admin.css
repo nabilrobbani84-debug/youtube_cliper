@@ -1,0 +1,76 @@
+.admin-container { display: flex; min-height: 100vh; background-color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
+.admin-sidebar { width: 260px; background-color: #ffffff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; padding: 1.5rem; position: sticky; top: 0; height: 100vh; }
+.admin-sidebar-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2.5rem; }
+.admin-logo-icon { color: #4f46e5; }
+.admin-sidebar-header span { font-size: 1.25rem; font-weight: 800; color: #1e293b; letter-spacing: -0.025em; }
+.admin-nav { display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1; }
+.admin-nav-item { padding: 0.75rem 1rem; border-radius: 8px; border: none; background: transparent; text-align: left; font-size: 0.95rem; font-weight: 600; color: #64748b; cursor: pointer; transition: all 0.2s; }
+.admin-nav-item:hover { background-color: #f8fafc; color: #4f46e5; }
+.admin-nav-item.active { background-color: #eef2ff; color: #4f46e5; }
+.logout-btn-admin { width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; color: #ef4444; background-color: #fee2e2; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 700; transition: all 0.2s; }
+.logout-btn-admin:hover { background-color: #fecaca; }
+
+.admin-main { flex-grow: 1; padding: 2.5rem; }
+.admin-header { margin-bottom: 2.5rem; }
+.admin-title { font-size: 1.875rem; font-weight: 800; color: #0f172a; letter-spacing: -0.025em; margin-bottom: 0.5rem; }
+.admin-subtitle { color: #64748b; font-size: 1rem; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem; }
+.stat-card { background-color: #ffffff; padding: 1.5rem; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stat-icon-wrapper { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.bg-blue { background-color: #dbeafe; }
+.bg-indigo { background-color: #e0e7ff; }
+.bg-rose { background-color: #ffe4e6; }
+.stat-label { font-size: 0.875rem; font-weight: 600; color: #64748b; margin: 0; }
+.stat-value { font-size: 1.5rem; font-weight: 800; color: #1e293b; margin: 0; }
+
+.admin-card { background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+.admin-card-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #e2e8f0; }
+.admin-card-header h2 { font-size: 1.125rem; font-weight: 700; color: #1e293b; margin: 0; }
+
+.admin-table { width: 100%; border-collapse: collapse; text-align: left; }
+.admin-table th { padding: 1rem 1.5rem; background-color: #f8fafc; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
+.admin-table td { padding: 1rem 1.5rem; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; color: #334155; vertical-align: middle; }
+.admin-table tr:last-child td { border-bottom: none; }
+
+.status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+.badge-pending { background-color: #fef3c7; color: #92400e; }
+.badge-success { background-color: #dcfce7; color: #166534; }
+.badge-failed { background-color: #fee2e2; color: #991b1b; }
+.badge-open { background-color: #dbeafe; color: #1e40af; }
+.badge-resolved { background-color: #dcfce7; color: #166534; }
+
+.btn-group-admin { display: flex; gap: 0.5rem; }
+.btn-icon-approve { color: #16a34a; background: transparent; border: none; cursor: pointer; transition: transform 0.2s; }
+.btn-icon-reject { color: #dc2626; background: transparent; border: none; cursor: pointer; transition: transform 0.2s; }
+.btn-icon-approve:hover, .btn-icon-reject:hover { transform: scale(1.1); }
+
+.credit-btn { background-color: #4f46e5; color: white; border: none; padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.credit-btn:hover { background-color: #4338ca; }
+
+.tickets-list-admin { display: flex; flex-direction: column; }
+.ticket-item-admin { padding: 1.5rem; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; }
+.ticket-item-admin:last-child { border-bottom: none; }
+.ticket-info { flex-grow: 1; }
+.ticket-subject-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+.ticket-msg { color: #475569; font-size: 0.95rem; line-height: 1.5; margin: 0 0 1rem 0; }
+.ticket-meta-admin { font-size: 0.8rem; color: #94a3b8; }
+.btn-resolve { background-color: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.btn-reopen { background-color: #e2e8f0; color: #475569; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+
+@media (max-width: 1024px) {
+  .admin-sidebar { width: 80px; padding: 1rem; align-items: center; }
+  .admin-sidebar-header span { display: none; }
+  .admin-nav-item { padding: 0.75rem; display: flex; justify-content: center; }
+  .admin-nav-item span { display: none; }
+}
+
+.packages-admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+.pkg-admin-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.pkg-field { display: flex; flex-direction: column; gap: 0.5rem; }
+.pkg-field label { font-size: 0.8rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+.pkg-field input { padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem; color: #1e293b; font-weight: 600; outline: none; }
+.pkg-field input:focus { border-color: #4f46e5; box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1); }
+
+.admin-toast { position: fixed; top: 2rem; right: 2rem; background: #16a34a; color: white; padding: 1rem 2rem; border-radius: 12px; font-weight: 700; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); animation: toastEnter 0.3s ease-out; z-index: 9999; }
+@keyframes toastEnter { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }

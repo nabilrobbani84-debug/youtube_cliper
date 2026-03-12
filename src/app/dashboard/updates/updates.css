@@ -1,0 +1,171 @@
+.updates-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.updates-header {
+  margin-bottom: 3.5rem;
+  text-align: center;
+}
+
+.updates-title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.updates-subtitle {
+  color: #64748b;
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.timeline-section {
+  position: relative;
+  padding-left: 2rem;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 3.5rem;
+  position: relative;
+}
+
+.timeline-meta {
+  width: 120px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-top: 0.5rem;
+  position: relative;
+}
+
+.timeline-date {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.timeline-dot {
+  position: absolute;
+  right: -2.3125rem; /* Adjusted to align with line */
+  top: 0.75rem;
+  width: 10px;
+  height: 10px;
+  background-color: #6366f1;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 1px #6366f1;
+  z-index: 2;
+}
+
+.timeline-line {
+  position: absolute;
+  right: -2rem;
+  top: 0.75rem;
+  width: 2px;
+  height: calc(100% + 3.5rem);
+  background: linear-gradient(to bottom, #6366f1, #e0e7ff);
+  z-index: 1;
+}
+
+.end-timeline .timeline-line {
+  display: none;
+}
+
+.end-dot {
+  background-color: #cbd5e1;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.update-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.update-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 0.75rem;
+}
+
+.update-desc {
+  color: #475569;
+  line-height: 1.6;
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+}
+
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.change-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.change-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.badge-feature {
+  background-color: #f0f9ff;
+  color: #0369a1;
+}
+
+.badge-bug {
+  background-color: #fef2f2;
+  color: #b91c1c;
+}
+
+.badge-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+}
+
+.change-text {
+  font-size: 0.9rem;
+  color: #334155;
+  line-height: 1.4;
+  padding-top: 0.2rem;
+}
+
+.end-text {
+  color: #94a3b8;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .timeline-meta {
+    display: none;
+  }
+  .timeline-section {
+    padding-left: 1.5rem;
+  }
+  .timeline-dot {
+    left: -1.8125rem;
+  }
+  .timeline-line {
+    left: -1.5rem;
+  }
+}
