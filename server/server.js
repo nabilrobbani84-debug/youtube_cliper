@@ -199,11 +199,17 @@ function simulateClipProcessing(mainClipId, videoId) {
             { title: "Punchline Mantap", score: "8.5" }
         ];
 
+        const workingUrls = [
+            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
+            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
+            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_232.52-264.12_final.mp4"
+        ];
+
         // Shuffle and pick 3
         const picked = momentVariants.sort(() => 0.5 - Math.random()).slice(0, 3);
         const subClips = picked.map((item, i) => ({
             id: `sub-${uuidv4()}`,
-            url: `https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/sample_clip_${i+1}.mp4`,
+            url: workingUrls[i % workingUrls.length],
             title: item.title,
             score: item.score
         }));

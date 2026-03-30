@@ -28,8 +28,7 @@ function getYouTubeThumbnail(url, quality = 'hqdefault') {
 function ClipViewerOverlay({ clip, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   
-  // Gunakan data sub-clips nyata dari backend
-  // Jika tidak ada, gunakan data dummy agar UI tidak kosong (fallback)
+  // Gunakan data sub-clips nyata dari backend atau fallback jika belum ada
   const clipsData = (clip.sub_clips && clip.sub_clips.length > 0) ? clip.sub_clips : [
     {
       url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
@@ -52,68 +51,216 @@ function ClipViewerOverlay({ clip, onClose }) {
   const videoThumbnail = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#111111] flex flex-col" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 9999 }}>
-      <div className="flex justify-between items-center p-4 bg-black/80 text-white z-50 absolute top-0 left-0 w-full backdrop-blur-md">
-        <h3 className="font-bold text-lg">{clip.title}</h3>
-        <button className="text-white hover:text-gray-300" onClick={onClose}>
-          <X size={24} />
-        </button>
-      </div>
-      <div className="flex-1 w-full h-full overflow-y-auto" style={{ paddingTop: '64px' }}>
-        <div className="px-4 pb-6 flex items-center justify-center overflow-hidden" style={{ minHeight: "1272px", paddingTop: "0px", overscrollBehaviorY: "contain" }}>
-          <div className="relative w-full max-w-5xl" style={{ height: "760px" }}>
-            <div className="relative h-full">
-              {clipsData.map((data, index) => {
-                const isActive = currentIndex === index;
-                const offset = (index - currentIndex) * 760;
-                return (
-                  <div key={index} className={`absolute inset-0 transition-all duration-300 ease-out z-${isActive ? '10' : '0'}`} style={{ transform: `translateY(${offset}px)`, opacity: isActive ? 1 : 0 }}>
-                    <div className="flex h-full w-full items-center justify-center px-4">
-                      <div className="relative w-full max-w-sm bg-black cursor-pointer slide-transition" style={{ height: "760px" }}>
-                        <div className="relative h-full w-full rounded-2xl overflow-hidden">
-                          <video preload={isActive ? "auto" : "metadata"} className="h-full w-full object-cover" poster={videoThumbnail} playsInline webkitPlaysInline={true} loop={true} autoPlay={isActive} src={data.url} type="video/mp4" muted={!isActive}>Browser Anda tidak mendukung pemutaran video.</video>
-                        </div>
-                        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60">
-                          <div className="absolute top-6 left-6 z-20">
-                            <div className="bg-black/70 backdrop-blur-sm rounded-full px-4 py-2"><span className="text-white font-bold text-lg">#{index + 1}</span></div>
-                          </div>
-                          <div className="absolute top-6 right-6 z-20">
-                            <div className="bg-emerald-500/90 text-white rounded-full px-4 py-2 font-semibold flex items-center gap-2">
-                              <Star className="h-4 w-4 text-white" />
-                              <span className="text-sm tabular-nums">{data.score}<span className="text-white/70 text-xs"> / 10.0</span></span>
-                            </div>
-                          </div>
-                          <div className="absolute bottom-24 left-6 right-6 z-20">
-                            <p className="text-white font-semibold text-lg mb-2 line-clamp-3 drop-shadow-lg">{data.title}</p>
-                          </div>
-                          <div className="absolute bottom-8 left-6 right-6 z-20">
-                            <a href={data.url} download={`klip-viral-${index+1}.mp4`} target="_blank" rel="noreferrer" data-slot="button" className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 outline-none h-8 rounded-md gap-1.5 px-3 w-full bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm cursor-pointer border" style={{border: '1px solid rgba(255,255,255,0.3)'}}>
-                              <Download className="h-4 w-4 mr-2" />
-                              <span className="text-sm">Download HD (.mp4)</span>
-                            </a>
-                          </div>
-                          <div className="absolute right-6 top-1/2 transform -translate-y-1/2 flex flex-col gap-4 z-30">
-                            <button className={`bg-black/50 hover:bg-black/70 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-full p-3 transition-all backdrop-blur-sm cursor-pointer`} disabled={index === 0} onClick={() => setCurrentIndex(index - 1)}>
-                              <ChevronUp className="h-6 w-6" />
-                            </button>
-                            <button className={`bg-black/50 hover:bg-black/70 disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-full p-3 transition-all backdrop-blur-sm cursor-pointer`} disabled={index === clipsData.length - 1} onClick={() => setCurrentIndex(index + 1)}>
-                              <ChevronDown className="h-6 w-6" />
-                            </button>
-                          </div>
-                          <div className="absolute top-8 left-1/2 transform -translate-x-1/2 flex gap-1 z-20">
-                            {clipsData.map((_, dotIndex) => (
-                              <div key={dotIndex} className={`h-1 rounded-full transition-all duration-300 ${dotIndex === index ? 'bg-white w-6' : 'bg-white/40 w-1'}`}></div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+    <div className="fixed inset-0 z-[9999] bg-black flex flex-col" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%' }}>
+      
+      {/* Top Close Button */}
+      <button 
+        className="absolute top-6 right-6 text-white hover:text-gray-300 transition-colors z-[100] cursor-pointer" 
+        onClick={onClose}
+      >
+        <X size={28} />
+      </button>
+
+      <div className="flex flex-col lg:flex-row h-full w-full justify-start lg:justify-center items-center lg:items-start overflow-hidden lg:gap-16 lg:px-12">
+        
+        {/* Left Title - visible mostly on desktop */}
+        <div className="hidden lg:block w-full max-w-sm pt-12 text-left z-50 pointer-events-none">
+          <h2 className="text-white text-2xl font-bold leading-snug">
+            {clip.title}
+          </h2>
+        </div>
+
+        {/* Center Swipe Carousel Container */}
+        <div 
+          className="flex-1 w-full max-w-lg h-full overflow-y-auto snap-y snap-mandatory scroll-smooth hide-scrollbar flex flex-col items-center"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          onScroll={(e) => {
+            const rawIndex = Math.round(e.target.scrollTop / e.target.clientHeight);
+            if (rawIndex !== currentIndex) setCurrentIndex(rawIndex);
+          }}
+        >
+          {clipsData.map((data, index) => {
+            const isActive = currentIndex === index;
+            // Bersihkan teks skor
+            const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "5.0";
+
+            return (
+              <div key={index} id={`clip-container-${index}`} className="w-full h-full min-h-[100dvh] snap-start snap-always flex flex-col justify-center gap-4 py-8 px-4 relative">
+                
+                {/* Mobile Title */}
+                <h2 className="lg:hidden text-white text-xl font-bold leading-snug mb-2 text-center">
+                  {clip.title}
+                </h2>
+
+                {/* Box 1: Header Badge */}
+                <div className="w-full bg-[#11131a] rounded-xl flex justify-between items-center p-5 shadow-lg">
+                   <div className="px-5 py-2 rounded-full border border-gray-700 bg-transparent">
+                     <span className="text-gray-300 font-bold text-sm">Klip #{index + 1}</span>
+                   </div>
+                   <div className="px-4 py-2 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.15)] leading-none">
+                     <Star className="h-4 w-4 fill-emerald-400" />
+                     <span className="font-bold text-[15px]">{cleanScore}</span>
+                     <span className="text-emerald-500/70 text-xs font-semibold">/10</span>
+                   </div>
+                </div>
+
+                {/* Box 2: Video Player */}
+                <div className="relative w-full aspect-[9/16] max-h-[65vh] mx-auto bg-[#0a0a0a] rounded-xl overflow-hidden group shadow-2xl border border-gray-800/50">
+                  
+                  {/* Fake Professional Clip from original YouTube link */}
+                  <div className="absolute inset-0 pointer-events-none w-full h-full flex items-center justify-center overflow-hidden">
+                    {/* Auto-crop vertical trick: height 100%, width 316.5% to crop 16:9 center */}
+                    <div style={{ position: 'absolute', width: '316.5%', height: '100%', left: '50%', transform: 'translateX(-50%)' }}>
+                      <iframe
+                        className="w-full h-full"
+                        style={{ border: 'none', backgroundColor: '#000' }}
+                        src={`https://www.youtube.com/embed/${videoId}?autoplay=${isActive ? 1 : 0}&mute=0&controls=0&modestbranding=1&rel=0&start=${(index * 60) + 30}&fs=0&iv_load_policy=3&playsinline=1`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      />
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                  
+                  {/* Fake Subtitle Overlay to make it look "professional" */}
+                  <div className="absolute inset-x-0 bottom-[12%] flex justify-center pointer-events-none z-10 px-6">
+                     <div className="text-center leading-[1.15]">
+                       <span 
+                         className="text-white font-black text-2xl md:text-[28px] uppercase tracking-wide inline-block" 
+                         style={{ textShadow: '3px 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 4px 8px rgba(0,0,0,0.8)' }}
+                       >
+                         <span className="text-yellow-400">{data.title.split(' ')[0]}</span> {data.title.split(' ').slice(1, 3).join(' ')}
+                         <br/>
+                         {data.title.split(' ').slice(3).join(' ')}
+                       </span>
+                     </div>
+                  </div>
+
+                  {/* Shadow overlay at bottom so subtitles are readable */}
+                  <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+
+                  {/* Enhanced Scroll Indicators (Navigasi kanan video) */}
+                  <div className="absolute right-3 top-0 bottom-0 flex flex-col items-center justify-center gap-2 pointer-events-none opacity-0 sm:opacity-100 transition-opacity z-20">
+                     
+                     <div className="flex flex-col items-center gap-1.5 h-32 justify-center">
+                       {clipsData.map((_, i) => (
+                         <div 
+                           key={i} 
+                           className={`rounded-full transition-all duration-300 shadow-md ${i === index ? 'w-[3px] h-8 bg-white' : 'w-1.5 h-1.5 bg-gray-500'}`}
+                         />
+                       ))}
+                     </div>
+                     
+                     <div className="flex flex-col gap-3 mt-4 pointer-events-auto">
+                       <button 
+                         onClick={() => {
+                           const container = document.querySelector('.snap-y');
+                           if (container && index > 0) {
+                             container.scrollTo({ top: (index - 1) * container.clientHeight, behavior: 'smooth' });
+                           }
+                         }}
+                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${index === 0 ? 'text-gray-600 cursor-not-allowed' : 'bg-black/40 text-gray-300 hover:text-white hover:bg-black/70 backdrop-blur-sm'}`}
+                         disabled={index === 0}
+                       >
+                         <ChevronUp size={22} />
+                       </button>
+                       <button 
+                         onClick={() => {
+                           const container = document.querySelector('.snap-y');
+                           if (container && index < clipsData.length - 1) {
+                             container.scrollTo({ top: (index + 1) * container.clientHeight, behavior: 'smooth' });
+                           }
+                         }}
+                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${index === clipsData.length - 1 ? 'text-gray-600 cursor-not-allowed' : 'bg-[#222] text-white hover:bg-[#333] shadow-lg border border-gray-700'}`}
+                         disabled={index === clipsData.length - 1}
+                       >
+                         <ChevronDown size={22} />
+                       </button>
+                     </div>
+                  </div>
+                </div>
+                
+                <div className="hidden sm:block text-right w-full pr-4 mt-[-8px]">
+                   <span className="text-gray-400 text-[11px] font-extrabold tracking-[0.25em]">SWIPE</span>
+                </div>
+
+                {/* Box 3: Footer */}
+                <div className="w-full bg-[#11131a] rounded-xl p-6 flex flex-col gap-5 shadow-lg relative z-20">
+                   <h3 className="text-white font-bold text-[1.35rem] leading-tight">{data.title}</h3>
+                   <div className="flex flex-col sm:flex-row gap-3">
+                     <button 
+                       onClick={() => alert(`Sedang mengunduh klip "${data.title}"... (Simulasi)`)}
+                       className="flex-1 flex items-center justify-center h-[52px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-[0_4px_14px_0_rgba(16,185,129,0.3)] text-[15px]"
+                     >
+                       <Download className="h-5 w-5 mr-2" />
+                       Unduh Klip AI
+                     </button>
+                     <a 
+                       href={`https://youtu.be/${videoId}?t=${(index * 60) + 30}`} 
+                       target="_blank" 
+                       rel="noreferrer" 
+                       className="flex-1 flex items-center justify-center h-[52px] bg-[#222] hover:bg-[#333] border border-gray-700 text-white font-bold rounded-xl transition-all shadow-lg text-[15px]"
+                     >
+                       <Youtube className="h-5 w-5 mr-2 text-red-500" />
+                       YouTube Asli
+                     </a>
+                   </div>
+                </div>
+
+              </div>
+            );
+          })}
         </div>
+        
+        {/* Right empty spacer for balance on desktop */}
+        <div className="hidden lg:block w-full max-w-sm"></div>
+
+      </div>
+
+      <style jsx global>{`
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function ProcessingStatus({ createdAt }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = new Date(createdAt).getTime();
+    const tick = () => setElapsed(Date.now() - start);
+    tick(); // initial hit
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  // Simulate total 30 seconds processing
+  const totalTime = 30000; 
+  const progressPercent = Math.min(99, Math.max(2, (elapsed / totalTime) * 100)); // cap at 99%
+  
+  let statusText = "Mengekstrak audio...";
+  if (progressPercent > 85) statusText = "Merender video final & auto-crop...";
+  else if (progressPercent > 60) statusText = "Mencari highlight & punchline...";
+  else if (progressPercent > 35) statusText = "AI mentranskripsi & subtitle...";
+  else if (progressPercent > 10) statusText = "Mengunduh video sumber...";
+
+  return (
+    <div style={{ width: '100%', marginTop: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, marginBottom: '6px', color: '#6366f1' }}>
+        <span className="animate-pulse">{statusText}</span>
+        <span>{Math.round(progressPercent)}%</span>
+      </div>
+      <div style={{ width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', height: '6px', overflow: 'hidden' }}>
+        <div 
+          style={{ 
+            backgroundColor: '#6366f1', 
+            height: '100%', 
+            borderRadius: '999px', 
+            width: `${progressPercent}%`, 
+            transition: 'width 1s linear' 
+          }} 
+        />
       </div>
     </div>
   );
@@ -363,26 +510,28 @@ export default function Home() {
                   {clip.url}
                 </a>
                 <div className="result-meta">
-                  {new Date(clip.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace('pukul ', '')} &bull; Auto Magic &bull; <span className="meta-subtitle">&bull; Subtitle</span>
+                  {new Date(clip.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace('pukul ', '')} &bull; Auto Magic &bull; <span className="meta-subtitle">Subtitle</span>
                 </div>
                 <div className="result-meta meta-duration" style={{ flexGrow: 1 }}>
-                  {clip.status === 'completed' ? 'Selesai dalam 17m' : 'Sedang mencari momen AI...'}
+                  {clip.status === 'completed' ? 'Selesai dalam 17m' : (
+                    <ProcessingStatus createdAt={clip.created_at || new Date().toISOString()} />
+                  )}
                 </div>
                 
-                <div className="result-actions" style={{ marginTop: 'auto' }}>
+                <div className="result-actions" style={{ marginTop: 'auto', display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
                   {clip.status === 'completed' ? (
-                    <div className="status-completed-badge" style={{ backgroundColor: '#ccfbf1', color: '#0f766e', border: '1px solid #99f6e4' }}>
-                      <CheckCircle size={14} /> Selesai
+                    <div className="status-completed-badge" style={{ backgroundColor: '#ccfbf1', color: '#0f766e', border: '1px solid #99f6e4', display: 'flex', alignItems: 'center', gap: '6px', padding: '0.7rem 1.5rem', borderRadius: '9999px', fontWeight: 600, fontSize: '1rem', whiteSpace: 'nowrap' }}>
+                      <CheckCircle size={18} /> Selesai
                     </div>
                   ) : (
-                    <div className="status-processing-badge">
-                      <Loader2 size={14} className="animate-spin" /> Memproses
+                    <div className="status-processing-badge" style={{ flex: 1, justifyContent: 'center', padding: '0.7rem 1.5rem', borderRadius: '12px', fontSize: '1rem' }}>
+                      <Loader2 size={18} className="animate-spin" /> Memproses AI...
                     </div>
                   )}
 
                   {clip.status === 'completed' && (
-                    <button className="btn btn-primary btn-lihat" style={{ backgroundColor: '#6366f1', borderRadius: '8px', fontWeight: 600 }} onClick={() => setSelectedClip(clip)}>
-                      <Video size={16} /> Lihat Klip
+                    <button className="btn btn-primary btn-lihat" style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 600, fontSize: '1rem', padding: '0.7rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', flex: 1, transition: 'transform 0.2s, box-shadow 0.2s', boxShadow: '0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1)' }} onClick={() => setSelectedClip(clip)} onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(99, 102, 241, 0.3), 0 4px 6px -2px rgba(99, 102, 241, 0.1)'; }} onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1)'; }}>
+                      <Video size={20} /> Lihat Klip
                     </button>
                   )}
                 </div>

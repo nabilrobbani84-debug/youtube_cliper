@@ -218,8 +218,8 @@ export default function Login() {
             </div>
           )}
 
-          {/* Google Button */}
-          {GOOGLE_CLIENT_ID ? (
+          {/* Google Button — hanya tampil jika GOOGLE_CLIENT_ID sudah diisi */}
+          {GOOGLE_CLIENT_ID && (
             <div className="mb-5 relative">
               <div id="google-btn-container" className="w-full [&>div]:w-full flex justify-center"></div>
               {loading && (
@@ -228,30 +228,13 @@ export default function Login() {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="mb-5 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-4 text-[0.8rem] font-medium leading-relaxed">
-              <div className="font-bold text-sm mb-2 flex items-center gap-2">
-                <span>⚠️</span> Google Login Belum Dikonfigurasi
-              </div>
-              <p className="text-[0.78rem] text-amber-700">
-                Untuk mengaktifkan login Google, isi <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono">GOOGLE_CLIENT_ID</code> di file <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono">src/app/login/page.jsx</code>.
-              </p>
-              <a 
-                href="https://console.cloud.google.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-block mt-2 text-blue-600 font-bold hover:underline text-[0.78rem]"
-              >
-                Buka Google Cloud Console →
-              </a>
-            </div>
           )}
 
           {/* Divider */}
           <div className="flex items-center gap-3 mb-5">
             <div className="flex-1 h-px bg-gray-200"></div>
             <span className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
-              {GOOGLE_CLIENT_ID ? 'Atau dengan Email' : 'Masuk dengan Email'}
+              Masuk dengan Email
             </span>
             <div className="flex-1 h-px bg-gray-200"></div>
           </div>
