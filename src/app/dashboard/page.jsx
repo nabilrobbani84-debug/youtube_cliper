@@ -92,211 +92,161 @@ function ClipViewerOverlay({ clip, onClose }) {
   ];
 
   const videoId = getYouTubeId(clip.url);
-  const videoThumbnail = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
+
+  // Timestamps berbeda untuk tiap klip
+  const startTimes = [30, 150, 280];
+
+  // Subtitle set per klip
+  const subtitleSets = [
+    ["Ini benar-benar tidak bisa dipercaya!", "Semua orang terkejut melihatnya...", "Tidak ada yang menyangka ini terjadi!", "Inilah momen yang paling viral!"],
+    ["Hasilnya sangat mengejutkan semua orang.", "Bahkan para ahli tidak bisa memprediksinya.", "Ini salah satu reaksi terbaik sepanjang masa.", "Tonton sampai habis, kalian pasti terkejut!"],
+    ["Momen paling lucu yang pernah ada!", "Tidak ada yang bisa menahan tawa melihat ini.", "Ini punchline terbaik episode ini!", "Reaksinya benar-benar tidak terduga."],
+  ];
+
+  const translationTexts = [
+    "AI mendeteksi ini sebagai puncak emosi video. Penonton bereaksi keras terhadap pernyataan tak terduga dari pembicara — ekspresi dan nada bicara menunjukkan kejutan yang sangat kuat.",
+    "Segmen ini dipilih karena mengandung konflik naratif yang kuat dan detail menarik yang membuat penonton tidak bisa berhenti menonton. Cocok untuk klip edukasi atau opini.",
+    "Klip ini memiliki punchline yang tiba-tiba dan mengejutkan. Ritme percakapan cepat diikuti pause dramatis menciptakan efek humor tinggi. Potensi viral terbaik untuk Reels/Shorts.",
+  ];
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black flex flex-col" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%' }}>
-      
-      {/* Top Close Button */}
-      <button 
-        className="absolute top-6 right-6 text-white hover:text-gray-300 transition-colors z-[100] cursor-pointer" 
-        onClick={onClose}
-      >
-        <X size={28} />
-      </button>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: '#000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      <div className="flex flex-col lg:flex-row h-full w-full justify-start lg:justify-center items-center lg:items-start overflow-hidden lg:gap-16 lg:px-12">
-        
-        {/* Left Title - visible mostly on desktop */}
-        <div className="hidden lg:block w-full max-w-sm pt-12 text-left z-50 pointer-events-none">
-          <h2 className="text-white text-2xl font-bold leading-snug">
-            {clip.title}
-          </h2>
+      {/* ── TOP BAR ───────────────────────────────────── */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%)' }}>
+        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(8px)' }}>
+          <X size={20} color="white" />
+        </button>
+        <div style={{ textAlign: 'center', flex: 1, padding: '0 12px' }}>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 2 }}>Hasil Klip AI</div>
+          <div style={{ color: 'white', fontSize: 13, fontWeight: 700, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: 220 }}>{clip.title}</div>
         </div>
-
-        {/* Center Swipe Carousel Container */}
-        <div 
-          className="flex-1 w-full max-w-lg h-full overflow-y-auto snap-y snap-mandatory scroll-smooth hide-scrollbar flex flex-col items-center"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-          onScroll={(e) => {
-            const rawIndex = Math.round(e.target.scrollTop / e.target.clientHeight);
-            if (rawIndex !== currentIndex) setCurrentIndex(rawIndex);
-          }}
-        >
-          {clipsData.map((data, index) => {
-            const isActive = currentIndex === index;
-            // Bersihkan teks skor
-            const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "5.0";
-
-            // Simulasi subtitle terjemahan Indonesia per klip
-            const subtitleSets = [
-              [
-                "Ini benar-benar tidak bisa dipercaya!",
-                "Semua orang terkejut saat melihatnya...",
-                "Tidak ada yang menyangka ini terjadi.",
-                "Inilah momen yang paling viral!",
-              ],
-              [
-                "Hasilnya sangat mengejutkan semua orang.",
-                "Bahkan para ahli pun tidak bisa memprediksinya.",
-                "Ini adalah salah satu reaksi terbaik.",
-                "Tonton sampai habis, kalian akan terkejut!",
-              ],
-              [
-                "Momen paling lucu yang pernah ada.",
-                "Tidak ada yang bisa menahan tawa melihat ini.",
-                "Ini adalah punchline terbaik episode ini!",
-                "Reaksinya benar-benar tidak terduga.",
-              ],
-            ];
-            const currentSubtitles = subtitleSets[index % subtitleSets.length];
-
-            // Terjemahan lengkap per klip
-            const translationTexts = [
-              "AI mendeteksi momen ini sebagai puncak emosi video. Penonton bereaksi keras terhadap pernyataan tak terduga dari pembicara. Ekspresi wajah dan nada bicara menunjukkan kejutan yang sangat kuat, menjadikan segmen ini ideal untuk konten viral.",
-              "Segmen kedua ini dipilih karena mengandung konflik naratif yang kuat. Penjelasan yang detail namun tetap menarik membuat penonton tidak bisa berhenti menonton. Sangat cocok untuk klip edukasi atau opini yang mengundang diskusi.",
-              "Momen ketiga memiliki punchline yang tiba-tiba dan mengejutkan. Ritme percakapan yang cepat diikuti pause dramatis menciptakan efek humor yang tinggi. AI menilai segmen ini memiliki potensi terbaik untuk diunggah sebagai Reels atau Shorts.",
-            ];
-
-            return (
-              <div key={index} id={`clip-container-${index}`} className="w-full h-full min-h-[100dvh] snap-start snap-always flex flex-col justify-center gap-4 py-8 px-4 relative">
-                
-                {/* Mobile Title */}
-                <h2 className="lg:hidden text-white text-xl font-bold leading-snug mb-2 text-center">
-                  {clip.title}
-                </h2>
-
-                {/* Box 1: Header Badge */}
-                <div className="w-full bg-[#11131a] rounded-xl flex justify-between items-center p-5 shadow-lg">
-                   <div className="px-5 py-2 rounded-full border border-gray-700 bg-transparent">
-                     <span className="text-gray-300 font-bold text-sm">Klip #{index + 1}</span>
-                   </div>
-                   <div className="px-4 py-2 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.15)] leading-none">
-                     <Star className="h-4 w-4 fill-emerald-400" />
-                     <span className="font-bold text-[15px]">{cleanScore}</span>
-                     <span className="text-emerald-500/70 text-xs font-semibold">/10</span>
-                   </div>
-                </div>
-
-                {/* Box 2: Video Player */}
-                <div className="relative w-full aspect-[9/16] max-h-[65vh] mx-auto bg-[#0a0a0a] rounded-xl overflow-hidden group shadow-2xl border border-gray-800/50">
-                  
-                  {/* Fake Professional Clip from original YouTube link */}
-                  <div className="absolute inset-0 pointer-events-none w-full h-full flex items-center justify-center overflow-hidden">
-                    {/* Auto-crop vertical trick: height 100%, width 316.5% to crop 16:9 center */}
-                    <div style={{ position: 'absolute', width: '316.5%', height: '100%', left: '50%', transform: 'translateX(-50%)' }}>
-                      <iframe
-                        className="w-full h-full"
-                        style={{ border: 'none', backgroundColor: '#000' }}
-                        src={`https://www.youtube.com/embed/${videoId}?autoplay=${isActive ? 1 : 0}&mute=0&controls=0&modestbranding=1&rel=0&start=${(index * 60) + 30}&fs=0&iv_load_policy=3&playsinline=1`}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Animated Indonesian Subtitle Overlay */}
-                  <AnimatedSubtitle subtitles={currentSubtitles} isActive={isActive} />
-
-                  {/* Shadow overlay at bottom so subtitles are readable */}
-                  <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-
-                  {/* Enhanced Scroll Indicators (Navigasi kanan video) */}
-                  <div className="absolute right-3 top-0 bottom-0 flex flex-col items-center justify-center gap-2 pointer-events-none opacity-0 sm:opacity-100 transition-opacity z-20">
-                     
-                     <div className="flex flex-col items-center gap-1.5 h-32 justify-center">
-                       {clipsData.map((_, i) => (
-                         <div 
-                           key={i} 
-                           className={`rounded-full transition-all duration-300 shadow-md ${i === index ? 'w-[3px] h-8 bg-white' : 'w-1.5 h-1.5 bg-gray-500'}`}
-                         />
-                       ))}
-                     </div>
-                     
-                     <div className="flex flex-col gap-3 mt-4 pointer-events-auto">
-                       <button 
-                         onClick={() => {
-                           const container = document.querySelector('.snap-y');
-                           if (container && index > 0) {
-                             container.scrollTo({ top: (index - 1) * container.clientHeight, behavior: 'smooth' });
-                           }
-                         }}
-                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${index === 0 ? 'text-gray-600 cursor-not-allowed' : 'bg-black/40 text-gray-300 hover:text-white hover:bg-black/70 backdrop-blur-sm'}`}
-                         disabled={index === 0}
-                       >
-                         <ChevronUp size={22} />
-                       </button>
-                       <button 
-                         onClick={() => {
-                           const container = document.querySelector('.snap-y');
-                           if (container && index < clipsData.length - 1) {
-                             container.scrollTo({ top: (index + 1) * container.clientHeight, behavior: 'smooth' });
-                           }
-                         }}
-                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${index === clipsData.length - 1 ? 'text-gray-600 cursor-not-allowed' : 'bg-[#222] text-white hover:bg-[#333] shadow-lg border border-gray-700'}`}
-                         disabled={index === clipsData.length - 1}
-                       >
-                         <ChevronDown size={22} />
-                       </button>
-                     </div>
-                  </div>
-                </div>
-                
-                <div className="hidden sm:block text-right w-full pr-4 mt-[-8px]">
-                   <span className="text-gray-400 text-[11px] font-extrabold tracking-[0.25em]">SWIPE</span>
-                </div>
-
-                {/* Box 3: Footer */}
-                <div className="w-full bg-[#11131a] rounded-xl p-6 flex flex-col gap-5 shadow-lg relative z-20">
-                   <h3 className="text-white font-bold text-[1.35rem] leading-tight">{data.title}</h3>
-
-                   {/* Terjemahan AI Panel */}
-                   <div className="w-full rounded-xl border border-indigo-500/30 bg-indigo-950/40 p-4 flex flex-col gap-2">
-                     <div className="flex items-center gap-2 mb-1">
-                       <Languages className="h-4 w-4 text-indigo-400" />
-                       <span className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Terjemahan AI · Bahasa Indonesia</span>
-                       <span className="ml-auto text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                         <Sparkles className="h-3 w-3" /> Auto
-                       </span>
-                     </div>
-                     <p className="text-gray-300 text-sm leading-relaxed">
-                       {translationTexts[index % translationTexts.length]}
-                     </p>
-                   </div>
-
-                   <div className="flex flex-col sm:flex-row gap-3">
-                     <button 
-                       onClick={() => alert(`Sedang mengunduh klip "${data.title}"... (Simulasi)`)}
-                       className="flex-1 flex items-center justify-center h-[52px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-[0_4px_14px_0_rgba(16,185,129,0.3)] text-[15px]"
-                     >
-                       <Download className="h-5 w-5 mr-2" />
-                       Unduh Klip AI
-                     </button>
-                     <a 
-                       href={`https://youtu.be/${videoId}?t=${(index * 60) + 30}`} 
-                       target="_blank" 
-                       rel="noreferrer" 
-                       className="flex-1 flex items-center justify-center h-[52px] bg-[#222] hover:bg-[#333] border border-gray-700 text-white font-bold rounded-xl transition-all shadow-lg text-[15px]"
-                     >
-                       <Youtube className="h-5 w-5 mr-2 text-red-500" />
-                       YouTube Asli
-                     </a>
-                   </div>
-                </div>
-
-              </div>
-            );
-          })}
+        {/* Dot indicators */}
+        <div style={{ display: 'flex', gap: 5 }}>
+          {clipsData.map((_, i) => (
+            <div key={i} style={{ width: i === currentIndex ? 18 : 6, height: 6, borderRadius: 3, backgroundColor: i === currentIndex ? '#6366f1' : 'rgba(255,255,255,0.3)', transition: 'all 0.3s' }} />
+          ))}
         </div>
-        
-        {/* Right empty spacer for balance on desktop */}
-        <div className="hidden lg:block w-full max-w-sm"></div>
-
       </div>
 
-      <style jsx global>{`
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
-        }
+      {/* ── MAIN SWIPEABLE AREA ───────────────────────── */}
+      <div
+        id="clip-scroll-container"
+        style={{ flex: 1, overflowY: 'auto', scrollSnapType: 'y mandatory', scrollBehavior: 'smooth', scrollbarWidth: 'none' }}
+        onScroll={(e) => {
+          const rawIndex = Math.round(e.target.scrollTop / e.target.clientHeight);
+          if (rawIndex !== currentIndex) setCurrentIndex(rawIndex);
+        }}
+      >
+        {clipsData.map((data, index) => {
+          const isActive = currentIndex === index;
+          const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "8.5";
+          const currentSubtitles = subtitleSets[index % subtitleSets.length];
+          const startTime = startTimes[index] || 30;
+
+          return (
+            <div key={index} style={{ position: 'relative', width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: '#000' }}>
+
+              {/* ── VIDEO (cropped to vertical 9:16) ── */}
+              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', width: '316.5%', height: '100%', left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
+                  <iframe
+                    style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#000' }}
+                    src={`https://www.youtube.com/embed/${videoId}?autoplay=${isActive ? 1 : 0}&mute=0&controls=0&modestbranding=1&rel=0&start=${startTime}&fs=0&iv_load_policy=3&playsinline=1&enablejsapi=0`}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  />
+                </div>
+              </div>
+
+              {/* ── GRADIENT OVERLAYS ── */}
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 30%, transparent 50%, rgba(0,0,0,0.85) 100%)', pointerEvents: 'none' }} />
+
+              {/* ── SCORE BADGE (top-right) ── */}
+              <div style={{ position: 'absolute', top: 70, right: 16, background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Star size={13} color="#34d399" fill="#34d399" />
+                <span style={{ color: '#34d399', fontWeight: 800, fontSize: 14 }}>{cleanScore}</span>
+                <span style={{ color: 'rgba(52,211,153,0.6)', fontWeight: 700, fontSize: 11 }}>/10</span>
+              </div>
+
+              {/* ── KLIP NUMBER (top-left) ── */}
+              <div style={{ position: 'absolute', top: 70, left: 16, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '6px 14px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 700, fontSize: 12 }}>Klip #{index + 1} dari {clipsData.length}</span>
+              </div>
+
+              {/* ── ANIMATED SUBTITLE ── */}
+              <AnimatedSubtitle subtitles={currentSubtitles} isActive={isActive} />
+
+              {/* ── BOTTOM INFO + ACTIONS ── */}
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 16px 20px', zIndex: 10 }}>
+
+                {/* Title */}
+                <h3 style={{ color: 'white', fontWeight: 800, fontSize: 17, marginBottom: 8, lineHeight: 1.3, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>{data.title}</h3>
+
+                {/* Translation box */}
+                <div style={{ background: 'rgba(15,12,45,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 14, padding: '10px 14px', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                    <Languages size={13} color="#818cf8" />
+                    <span style={{ color: '#818cf8', fontSize: 10, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase' }}>Terjemahan AI · Bahasa Indonesia</span>
+                    <div style={{ marginLeft: 'auto', background: 'rgba(99,102,241,0.2)', borderRadius: 20, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Sparkles size={9} color="#818cf8" />
+                      <span style={{ color: '#818cf8', fontSize: 9, fontWeight: 700 }}>Auto</span>
+                    </div>
+                  </div>
+                  <p style={{ color: 'rgba(200,200,220,0.9)', fontSize: 12, lineHeight: 1.6, margin: 0 }}>
+                    {translationTexts[index % translationTexts.length]}
+                  </p>
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => alert(`Sedang mengunduh klip "${data.title}"... (Simulasi)`)}
+                    style={{ flex: 1, height: 48, background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', boxShadow: '0 4px 20px rgba(16,185,129,0.4)' }}
+                  >
+                    <Download size={17} /> Unduh Klip
+                  </button>
+                  <a
+                    href={`https://youtu.be/${videoId}?t=${startTime}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ flex: 1, height: 48, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}
+                  >
+                    <Youtube size={17} color="#f87171" /> YouTube
+                  </a>
+                </div>
+              </div>
+
+              {/* ── RIGHT SIDE NAV ── */}
+              <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 10, zIndex: 20 }}>
+                <button
+                  disabled={index === 0}
+                  onClick={() => {
+                    const el = document.getElementById('clip-scroll-container');
+                    if (el && index > 0) el.scrollTo({ top: (index - 1) * el.clientHeight, behavior: 'smooth' });
+                  }}
+                  style={{ width: 38, height: 38, borderRadius: '50%', background: index === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)', cursor: index === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: index === 0 ? 'rgba(255,255,255,0.2)' : 'white', transition: 'all 0.2s' }}
+                >
+                  <ChevronUp size={18} />
+                </button>
+                <button
+                  disabled={index === clipsData.length - 1}
+                  onClick={() => {
+                    const el = document.getElementById('clip-scroll-container');
+                    if (el && index < clipsData.length - 1) el.scrollTo({ top: (index + 1) * el.clientHeight, behavior: 'smooth' });
+                  }}
+                  style={{ width: 38, height: 38, borderRadius: '50%', background: index === clipsData.length - 1 ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.8)', backdropFilter: 'blur(8px)', border: 'none', cursor: index === clipsData.length - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: index === clipsData.length - 1 ? 'rgba(255,255,255,0.2)' : 'white', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(99,102,241,0.4)' }}
+                >
+                  <ChevronDown size={18} />
+                </button>
+              </div>
+
+            </div>
+          );
+        })}
+      </div>
+
+      <style>{`
+        #clip-scroll-container::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   );
