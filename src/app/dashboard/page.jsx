@@ -1,7 +1,7 @@
 "use client";
 import "./home.css";
-import { Info, ChevronDown, ChevronUp, CheckCircle, Loader2, Video, X, Download, Star, Youtube } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Info, ChevronDown, ChevronUp, CheckCircle, Loader2, Video, X, Download, Star, Youtube, Languages, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '../UserContext';
 
 // Helper: ekstrak YouTube Video ID dari URL apapun
@@ -23,6 +23,50 @@ function getYouTubeThumbnail(url, quality = 'hqdefault') {
   const id = getYouTubeId(url);
   if (!id) return null;
   return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
+}
+
+// Subtitle animasi yang berganti otomatis setiap 3 detik
+function AnimatedSubtitle({ subtitles, isActive }) {
+  const [subIndex, setSubIndex] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const interval = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setSubIndex(i => (i + 1) % subtitles.length);
+        setVisible(true);
+      }, 300);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isActive, subtitles.length]);
+
+  return (
+    <div className="absolute inset-x-0 bottom-[15%] flex justify-center pointer-events-none z-10 px-5">
+      <div
+        className="text-center leading-snug transition-all duration-300"
+        style={{ opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(6px)' }}
+      >
+        <span
+          className="text-white font-black text-[22px] md:text-[26px] uppercase tracking-wide inline-block px-3 py-1 rounded-md"
+          style={{
+            textShadow: '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 4px 12px rgba(0,0,0,0.9)',
+            WebkitTextStroke: '0.5px rgba(0,0,0,0.5)',
+          }}
+        >
+          {subtitles[subIndex].split(' ').map((word, wi) => (
+            <span key={wi}>
+              {wi === 0 || wi === Math.floor(subtitles[subIndex].split(' ').length / 2)
+                ? <span className="text-yellow-300">{word} </span>
+                : word + ' '
+              }
+            </span>
+          ))}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function ClipViewerOverlay({ clip, onClose }) {
@@ -84,6 +128,36 @@ function ClipViewerOverlay({ clip, onClose }) {
             // Bersihkan teks skor
             const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "5.0";
 
+            // Simulasi subtitle terjemahan Indonesia per klip
+            const subtitleSets = [
+              [
+                "Ini benar-benar tidak bisa dipercaya!",
+                "Semua orang terkejut saat melihatnya...",
+                "Tidak ada yang menyangka ini terjadi.",
+                "Inilah momen yang paling viral!",
+              ],
+              [
+                "Hasilnya sangat mengejutkan semua orang.",
+                "Bahkan para ahli pun tidak bisa memprediksinya.",
+                "Ini adalah salah satu reaksi terbaik.",
+                "Tonton sampai habis, kalian akan terkejut!",
+              ],
+              [
+                "Momen paling lucu yang pernah ada.",
+                "Tidak ada yang bisa menahan tawa melihat ini.",
+                "Ini adalah punchline terbaik episode ini!",
+                "Reaksinya benar-benar tidak terduga.",
+              ],
+            ];
+            const currentSubtitles = subtitleSets[index % subtitleSets.length];
+
+            // Terjemahan lengkap per klip
+            const translationTexts = [
+              "AI mendeteksi momen ini sebagai puncak emosi video. Penonton bereaksi keras terhadap pernyataan tak terduga dari pembicara. Ekspresi wajah dan nada bicara menunjukkan kejutan yang sangat kuat, menjadikan segmen ini ideal untuk konten viral.",
+              "Segmen kedua ini dipilih karena mengandung konflik naratif yang kuat. Penjelasan yang detail namun tetap menarik membuat penonton tidak bisa berhenti menonton. Sangat cocok untuk klip edukasi atau opini yang mengundang diskusi.",
+              "Momen ketiga memiliki punchline yang tiba-tiba dan mengejutkan. Ritme percakapan yang cepat diikuti pause dramatis menciptakan efek humor yang tinggi. AI menilai segmen ini memiliki potensi terbaik untuk diunggah sebagai Reels atau Shorts.",
+            ];
+
             return (
               <div key={index} id={`clip-container-${index}`} className="w-full h-full min-h-[100dvh] snap-start snap-always flex flex-col justify-center gap-4 py-8 px-4 relative">
                 
@@ -120,19 +194,8 @@ function ClipViewerOverlay({ clip, onClose }) {
                     </div>
                   </div>
                   
-                  {/* Fake Subtitle Overlay to make it look "professional" */}
-                  <div className="absolute inset-x-0 bottom-[12%] flex justify-center pointer-events-none z-10 px-6">
-                     <div className="text-center leading-[1.15]">
-                       <span 
-                         className="text-white font-black text-2xl md:text-[28px] uppercase tracking-wide inline-block" 
-                         style={{ textShadow: '3px 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 4px 8px rgba(0,0,0,0.8)' }}
-                       >
-                         <span className="text-yellow-400">{data.title.split(' ')[0]}</span> {data.title.split(' ').slice(1, 3).join(' ')}
-                         <br/>
-                         {data.title.split(' ').slice(3).join(' ')}
-                       </span>
-                     </div>
-                  </div>
+                  {/* Animated Indonesian Subtitle Overlay */}
+                  <AnimatedSubtitle subtitles={currentSubtitles} isActive={isActive} />
 
                   {/* Shadow overlay at bottom so subtitles are readable */}
                   <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
@@ -185,6 +248,21 @@ function ClipViewerOverlay({ clip, onClose }) {
                 {/* Box 3: Footer */}
                 <div className="w-full bg-[#11131a] rounded-xl p-6 flex flex-col gap-5 shadow-lg relative z-20">
                    <h3 className="text-white font-bold text-[1.35rem] leading-tight">{data.title}</h3>
+
+                   {/* Terjemahan AI Panel */}
+                   <div className="w-full rounded-xl border border-indigo-500/30 bg-indigo-950/40 p-4 flex flex-col gap-2">
+                     <div className="flex items-center gap-2 mb-1">
+                       <Languages className="h-4 w-4 text-indigo-400" />
+                       <span className="text-indigo-300 text-xs font-bold uppercase tracking-widest">Terjemahan AI · Bahasa Indonesia</span>
+                       <span className="ml-auto text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                         <Sparkles className="h-3 w-3" /> Auto
+                       </span>
+                     </div>
+                     <p className="text-gray-300 text-sm leading-relaxed">
+                       {translationTexts[index % translationTexts.length]}
+                     </p>
+                   </div>
+
                    <div className="flex flex-col sm:flex-row gap-3">
                      <button 
                        onClick={() => alert(`Sedang mengunduh klip "${data.title}"... (Simulasi)`)}
