@@ -528,6 +528,38 @@ app.put('/api/admin/tickets/:id', (req, res) => {
     });
 });
 
+// ----------------------------------------------------------------
+// DOWNLOAD PROXY: Fetch video dari S3 dan stream ke client
+// ----------------------------------------------------------------
+app.get('/api/download', async (req, res) => {
+    const { url, filename } = req.query;
+    if (!url) return res.status(400).json({ error: 'URL diperlukan' });
+
+    try {
+        const decodedUrl = decodeURIComponent(url);
+        const safeFilename = (filename || 'youclip-hasil.mp4').replace(/[^a-zA-Z0-9._\-\s]/g, '_');
+
+        const response = await fetch(decodedUrl);
+        if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
+
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        res.setHeader('Content-Type', response.headers.get('content-type') || 'video/mp4');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        const contentLength = response.headers.get('content-length');
+        if (contentLength) res.setHeader('Content-Length', contentLength);
+
+        // Stream response body ke client
+        const { Readable } = require('stream');
+        Readable.fromWeb(response.body).pipe(res);
+    } catch (err) {
+        console.error('[Download Proxy Error]', err.message);
+        // Fallback: redirect langsung
+        try { res.redirect(decodeURIComponent(req.query.url)); } catch(e) {
+            res.status(500).json({ error: 'Gagal mengunduh: ' + err.message });
+        }
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`✅ Server running on http://localhost:${PORT}`);
 });

@@ -71,7 +71,41 @@ function AnimatedSubtitle({ subtitles, isActive }) {
 
 function ClipViewerOverlay({ clip, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  
+  const [downloadingIndex, setDownloadingIndex] = useState(null);
+
+  async function downloadClip(videoUrl, title, index) {
+    if (downloadingIndex !== null) return;
+    setDownloadingIndex(index);
+    try {
+      const safeTitle = (title || 'youclip-klip').replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-');
+      const filename = `${safeTitle}-klip${index + 1}.mp4`;
+
+      // Gunakan server proxy agar CORS tidak jadi masalah
+      const proxyUrl = `http://localhost:5000/api/download?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
+
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error('Server error ' + response.status);
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+    } catch (err) {
+      console.error('Download error:', err);
+      // Fallback: buka di tab baru untuk download manual
+      window.open(videoUrl, '_blank');
+    } finally {
+      setDownloadingIndex(null);
+    }
+  }
+
+
   // Gunakan data sub-clips nyata dari backend atau fallback jika belum ada
   const clipsData = (clip.sub_clips && clip.sub_clips.length > 0) ? clip.sub_clips : [
     {
@@ -200,10 +234,15 @@ function ClipViewerOverlay({ clip, onClose }) {
                 {/* Action buttons */}
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
-                    onClick={() => alert(`Sedang mengunduh klip "${data.title}"... (Simulasi)`)}
-                    style={{ flex: 1, height: 48, background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', boxShadow: '0 4px 20px rgba(16,185,129,0.4)' }}
+                    onClick={() => downloadClip(data.url, data.title, index)}
+                    disabled={downloadingIndex !== null}
+                    style={{ flex: 1, height: 48, background: downloadingIndex === index ? 'linear-gradient(135deg, #047857, #065f46)' : 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: downloadingIndex !== null ? 'not-allowed' : 'pointer', boxShadow: '0 4px 20px rgba(16,185,129,0.4)', opacity: downloadingIndex !== null && downloadingIndex !== index ? 0.6 : 1, transition: 'all 0.2s' }}
                   >
-                    <Download size={17} /> Unduh Klip
+                    {downloadingIndex === index ? (
+                      <><Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> Mengunduh...</>
+                    ) : (
+                      <><Download size={17} /> Unduh Klip</>
+                    )}
                   </button>
                   <a
                     href={`https://youtu.be/${videoId}?t=${startTime}`}
