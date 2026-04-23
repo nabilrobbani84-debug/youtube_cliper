@@ -25,45 +25,52 @@ function getYouTubeThumbnail(url, quality = 'hqdefault') {
   return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
 }
 
-// Subtitle animasi yang berganti otomatis setiap 3 detik
 function AnimatedSubtitle({ subtitles, isActive }) {
   const [subIndex, setSubIndex] = useState(0);
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
     if (!isActive) return;
+    setSubIndex(0);
+    setVisible(true);
     const interval = setInterval(() => {
       setVisible(false);
       setTimeout(() => {
         setSubIndex(i => (i + 1) % subtitles.length);
         setVisible(true);
       }, 300);
-    }, 3000);
+    }, 2800);
     return () => clearInterval(interval);
   }, [isActive, subtitles.length]);
 
   return (
-    <div className="absolute inset-x-0 bottom-[15%] flex justify-center pointer-events-none z-10 px-5">
+    <div className="absolute inset-x-0 bottom-[22%] flex justify-center pointer-events-none z-10 px-6">
       <div
-        className="text-center leading-snug transition-all duration-300"
-        style={{ opacity: visible ? 1 : 0, transform: visible ? 'translateY(0)' : 'translateY(6px)' }}
+        className="text-center transition-all duration-300 transform"
+        style={{ 
+          opacity: visible ? 1 : 0, 
+          transform: visible ? 'translateY(0) scale(1)' : 'translateY(15px) scale(0.95)',
+          filter: visible ? 'drop-shadow(0 15px 15px rgba(0,0,0,0.6))' : 'none'
+        }}
       >
-        <span
-          className="text-white font-black text-[22px] md:text-[26px] uppercase tracking-wide inline-block px-3 py-1 rounded-md"
-          style={{
-            textShadow: '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 4px 12px rgba(0,0,0,0.9)',
-            WebkitTextStroke: '0.5px rgba(0,0,0,0.5)',
-          }}
-        >
-          {subtitles[subIndex].split(' ').map((word, wi) => (
-            <span key={wi}>
-              {wi === 0 || wi === Math.floor(subtitles[subIndex].split(' ').length / 2)
-                ? <span className="text-yellow-300">{word} </span>
-                : word + ' '
-              }
-            </span>
-          ))}
-        </span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
+          {subtitles[subIndex].split(' ').map((word, wi) => {
+            const isHighlighted = word === word.toUpperCase() && word.length > 2 && !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(word);
+            return (
+              <span 
+                key={wi} 
+                className={`font-black text-[25px] md:text-[32px] tracking-tight uppercase px-[6px] py-[2px] rounded-lg ${isHighlighted ? 'text-yellow-400 bg-black/50' : 'text-white'}`}
+                style={{
+                  textShadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 0 6px 12px rgba(0,0,0,0.9)',
+                  WebkitTextStroke: '1px black',
+                  lineHeight: '1.2'
+                }}
+              >
+                {word}
+              </span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -110,37 +117,71 @@ function ClipViewerOverlay({ clip, onClose }) {
   const clipsData = (clip.sub_clips && clip.sub_clips.length > 0) ? clip.sub_clips : [
     {
       url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
-      title: "Momen Viral #1: " + (clip.title || "Klip Video"),
-      score: "9.2"
+      title: "Highlight Utama: " + (clip.title || "Klip Video"),
+      score: "9.8"
     },
     {
       url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
-      title: "Momen Viral #2: " + (clip.title || "Klip Video"),
-      score: "8.5"
+      title: "Momen Intens: " + (clip.title || "Klip Video"),
+      score: "9.5"
     },
     {
       url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_232.52-264.12_final.mp4",
-      title: "Momen Viral #3: " + (clip.title || "Klip Video"),
-      score: "7.8"
+      title: "Reaksi Puncak: " + (clip.title || "Klip Video"),
+      score: "8.9"
+    },
+    {
+      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
+      title: "Poin Penting: " + (clip.title || "Klip Video"),
+      score: "8.6"
+    },
+    {
+      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
+      title: "Momen Unik: " + (clip.title || "Klip Video"),
+      score: "8.2"
     }
   ];
 
   const videoId = getYouTubeId(clip.url);
 
-  // Timestamps berbeda untuk tiap klip
-  const startTimes = [30, 150, 280];
+  // Timestamps berbeda untuk tiap klip (1 menit interval)
+  const startTimes = [30, 120, 240, 360, 480];
 
-  // Subtitle set per klip
+  // Subtitle set per klip (Terjemahan Bahasa Indonesia) dengan Highlight otomatis huruf kapital & emoji
   const subtitleSets = [
-    ["Ini benar-benar tidak bisa dipercaya!", "Semua orang terkejut melihatnya...", "Tidak ada yang menyangka ini terjadi!", "Inilah momen yang paling viral!"],
-    ["Hasilnya sangat mengejutkan semua orang.", "Bahkan para ahli tidak bisa memprediksinya.", "Ini salah satu reaksi terbaik sepanjang masa.", "Tonton sampai habis, kalian pasti terkejut!"],
-    ["Momen paling lucu yang pernah ada!", "Tidak ada yang bisa menahan tawa melihat ini.", "Ini punchline terbaik episode ini!", "Reaksinya benar-benar tidak terduga."],
+    ["Ini BENAR-BENAR tidak bisa dipercaya! 🤯", "Kalian HARUS melihat apa yang terjadi di sini. 👀", "Semuanya BERUBAH dalam sekejap! ⚡", "Inilah momen yang paling DITUNGGU-TUNGGU! 🔥"],
+    ["Hasil analisis ini SANGAT mengejutkan semua pihak. 📊", "Bahkan PARA AHLI pun tidak bisa memprediksinya. 🧠", "Perhatikan baik-baik DETAIL tersembunyi ini. 🔍", "Tonton sampai HABIS, pasti kalian terkejut! 😱"],
+    ["Reaksi spontan yang TIDAK TERDUGA ini luar biasa. 🎭", "EMOSI yang sesungguhnya terekam jelas di sini. ❤️‍🔥", "Ini adalah TITIK BALIK dari seluruh percakapan. 🔄", "Semua mata TERTUJU pada kejadian ini. 👁️"],
+    ["Terkadang kita MELUPAKAN fakta penting seperti ini. 💡", "Inilah ALASAN mengapa strategi ini krusial. 🎯", "Mari kita bedah secara mendalam BERSAMA. 🤝", "Kesimpulan akhir yang MEMBUKA wawasan baru. 🚀"],
+    ["Keseruan di BALIK LAYAR yang jarang terlihat. 🎬", "Interaksi JUJUR yang membuat suasana hidup. ✨", "Kejadian tak terduga ini MENCAIRKAN suasana. 🧊", "Momen santai tapi PENUH MAKNA yang berharga. 💎"],
   ];
 
-  const translationTexts = [
-    "AI mendeteksi ini sebagai puncak emosi video. Penonton bereaksi keras terhadap pernyataan tak terduga dari pembicara — ekspresi dan nada bicara menunjukkan kejutan yang sangat kuat.",
-    "Segmen ini dipilih karena mengandung konflik naratif yang kuat dan detail menarik yang membuat penonton tidak bisa berhenti menonton. Cocok untuk klip edukasi atau opini.",
-    "Klip ini memiliki punchline yang tiba-tiba dan mengejutkan. Ritme percakapan cepat diikuti pause dramatis menciptakan efek humor tinggi. Potensi viral terbaik untuk Reels/Shorts.",
+  const translationDetails = [
+    {
+      desc: "AI mendeteksi klip pendek 1 menit ini sebagai puncak narasi video. Mengandung konflik utama dengan retensi penonton diprediksi sangat tinggi.",
+      platform: "TikTok, Reels",
+      category: "Konflik & Debat"
+    },
+    {
+      desc: "Potongan video berdurasi 60 detik ini dipilih karena memberikan penjelasan mendalam namun ringkas dari pembicara.",
+      platform: "YouTube Shorts",
+      category: "Edukasi Singkat"
+    },
+    {
+      desc: "Klip 1 menit dengan punchline atau reaksi emosional yang kuat. Ritme percakapan cepat diikuti pause dramatis ciptakan engagement tinggi.",
+      platform: "Semua Platform",
+      category: "Emosional & Komedi"
+    },
+    {
+      desc: "Durasi 60 detik yang merangkum poin penting atau kesimpulan kunci dari keseluruhan diskusi yang diangkat.",
+      platform: "LinkedIn, Twitter",
+      category: "Kutipan Profesional"
+    },
+    {
+      desc: "Klip 1 menit yang menampilkan momen kasual atau interaksi menarik. Sangat efektif untuk membangun kedekatan audiens.",
+      platform: "TikTok, Reels",
+      category: "Behind the Scenes"
+    }
   ];
 
   return (
@@ -196,15 +237,15 @@ function ClipViewerOverlay({ clip, onClose }) {
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 30%, transparent 50%, rgba(0,0,0,0.85) 100%)', pointerEvents: 'none' }} />
 
               {/* ── SCORE BADGE (top-right) ── */}
-              <div style={{ position: 'absolute', top: 70, right: 16, background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Star size={13} color="#34d399" fill="#34d399" />
-                <span style={{ color: '#34d399', fontWeight: 800, fontSize: 14 }}>{cleanScore}</span>
-                <span style={{ color: 'rgba(52,211,153,0.6)', fontWeight: 700, fontSize: 11 }}>/10</span>
+              <div style={{ position: 'absolute', top: 70, right: 16, background: 'linear-gradient(135deg, rgba(16,185,129,0.9) 0%, rgba(6,95,70,0.95) 100%)', border: '1px solid rgba(52,211,153,0.5)', boxShadow: '0 4px 15px rgba(16,185,129,0.4)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Star size={14} color="#fef08a" fill="#fef08a" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
+                <span style={{ color: 'white', fontWeight: 900, fontSize: 15, textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>{cleanScore}</span>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 12 }}>/10</span>
               </div>
 
               {/* ── KLIP NUMBER (top-left) ── */}
-              <div style={{ position: 'absolute', top: 70, left: 16, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '6px 14px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 700, fontSize: 12 }}>Klip #{index + 1} dari {clipsData.length}</span>
+              <div style={{ position: 'absolute', top: 70, left: 16, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', backdropFilter: 'blur(12px)', borderRadius: 100, padding: '8px 16px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.95)', fontWeight: 800, fontSize: 13, letterSpacing: '0.02em' }}>Klip #{index + 1} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>dari {clipsData.length}</span></span>
               </div>
 
               {/* ── ANIMATED SUBTITLE ── */}
@@ -214,21 +255,29 @@ function ClipViewerOverlay({ clip, onClose }) {
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 16px 20px', zIndex: 10 }}>
 
                 {/* Title */}
-                <h3 style={{ color: 'white', fontWeight: 800, fontSize: 17, marginBottom: 8, lineHeight: 1.3, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>{data.title}</h3>
+                <h3 style={{ color: 'white', fontWeight: 900, fontSize: 19, marginBottom: 12, lineHeight: 1.3, textShadow: '0 4px 12px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.8)', paddingRight: '40px' }}>{data.title}</h3>
 
                 {/* Translation box */}
-                <div style={{ background: 'rgba(15,12,45,0.82)', backdropFilter: 'blur(12px)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 14, padding: '10px 14px', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-                    <Languages size={13} color="#818cf8" />
-                    <span style={{ color: '#818cf8', fontSize: 10, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase' }}>Terjemahan AI · Bahasa Indonesia</span>
-                    <div style={{ marginLeft: 'auto', background: 'rgba(99,102,241,0.2)', borderRadius: 20, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <Sparkles size={9} color="#818cf8" />
-                      <span style={{ color: '#818cf8', fontSize: 9, fontWeight: 700 }}>Auto</span>
+                <div style={{ background: 'linear-gradient(145deg, rgba(15,12,45,0.85), rgba(7,5,25,0.95))', backdropFilter: 'blur(16px)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 16, padding: '14px', marginBottom: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Languages size={15} color="#a5b4fc" />
+                    <span style={{ color: '#a5b4fc', fontSize: 11, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase' }}>Analisis & Terjemahan AI</span>
+                    <div style={{ marginLeft: 'auto', background: 'linear-gradient(90deg, #4f46e5, #7c3aed)', borderRadius: 20, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 4, boxShadow: '0 2px 10px rgba(99,102,241,0.4)' }}>
+                      <Sparkles size={11} color="#fff" />
+                      <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '0.05em' }}>PRO</span>
                     </div>
                   </div>
-                  <p style={{ color: 'rgba(200,200,220,0.9)', fontSize: 12, lineHeight: 1.6, margin: 0 }}>
-                    {translationTexts[index % translationTexts.length]}
+                  <p style={{ color: 'rgba(226,232,240,0.95)', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px 0', fontWeight: 500 }}>
+                    {translationDetails[index % translationDetails.length].desc}
                   </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Kategori:</span> {translationDetails[index % translationDetails.length].category}
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Target:</span> {translationDetails[index % translationDetails.length].platform}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Action buttons */}
