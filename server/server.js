@@ -146,10 +146,13 @@ app.get('/api/user', (req, res) => {
     const userId = req.headers['user-id'];
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     
-    db.get("SELECT id, username, display_name, picture, role, credits FROM users WHERE id = ?", [userId], (err, row) => {
+    db.get("SELECT id, username, display_name, picture, caption_brand, role, credits FROM users WHERE id = ?", [userId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!row) return res.status(404).json({ error: "User tidak ditemukan" });
-        res.json(row);
+        res.json({
+            ...row,
+            caption_brand: row.caption_brand ? JSON.parse(row.caption_brand) : null
+        });
     });
 });
 
@@ -164,6 +167,21 @@ app.post('/api/user/settings', (req, res) => {
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true, message: "Profil berhasil diperbarui" });
+        }
+    );
+});
+
+app.post('/api/user/caption-brand', (req, res) => {
+    const userId = req.headers['user-id'];
+    const { captionBrand } = req.body;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    db.run(
+        "UPDATE users SET caption_brand = ? WHERE id = ?",
+        [captionBrand ? JSON.stringify(captionBrand) : null, userId],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, caption_brand: captionBrand || null });
         }
     );
 });
@@ -188,15 +206,176 @@ function getYouTubeThumbnail(videoId) {
     return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
 }
 
-function simulateClipProcessing(mainClipId, videoId) {
+function getLayoutProfile(layout) {
+    const profiles = {
+        auto_magic: {
+            label: 'Auto Magic',
+            finish: 'Auto Reframe + cinematic grading',
+            hookPrefix: 'Hook terkuat',
+            platform: 'TikTok, Reels, Shorts'
+        },
+        gaussian: {
+            label: 'Gaussian Blur',
+            finish: 'Blur background + centered subject',
+            hookPrefix: 'Opening clean',
+            platform: 'Reels, Shorts'
+        },
+        reframe: {
+            label: 'Auto Reframe',
+            finish: 'Dynamic crop + focus tracking',
+            hookPrefix: 'Frame dinamis',
+            platform: 'Shorts, TikTok'
+        }
+    };
+
+    return profiles[layout] || profiles.auto_magic;
+}
+
+function getCaptionPresetProfile(captionPreset) {
+    const presets = {
+        viral_neon: {
+            label: 'Viral Neon',
+            accent: '#facc15',
+            textColor: '#ffffff',
+            background: 'rgba(0,0,0,0.45)',
+            vibe: 'Bold neon caption with aggressive punchline emphasis'
+        },
+        clean_cinema: {
+            label: 'Clean Cinema',
+            accent: '#f8fafc',
+            textColor: '#f8fafc',
+            background: 'rgba(15,23,42,0.3)',
+            vibe: 'Minimal cinematic subtitle for premium storytelling'
+        },
+        creator_pop: {
+            label: 'Creator Pop',
+            accent: '#fb7185',
+            textColor: '#ffffff',
+            background: 'rgba(30,41,59,0.55)',
+            vibe: 'High-contrast social caption for energetic creator content'
+        },
+        custom_brand: {
+            label: 'Custom Brand',
+            accent: '#22c55e',
+            textColor: '#ffffff',
+            background: 'rgba(15,23,42,0.45)',
+            vibe: 'Caption tuned to your own brand palette'
+        }
+    };
+
+    return presets[captionPreset] || presets.viral_neon;
+}
+
+function buildSubtitleTimeline(entries = []) {
+    return entries.map((entry, lineIndex) => {
+        const text = entry.text || '';
+        const emphasisSet = new Set((entry.emphasis || []).map((word) => word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase()));
+        const words = text.split(' ').filter(Boolean);
+        let cursor = 0;
+        const wordTimings = words.map((word, index) => {
+            const cleanWord = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
+            const duration = 0.22 + Math.min(word.length * 0.018, 0.22) + (emphasisSet.has(cleanWord) ? 0.08 : 0);
+            const start = Number(cursor.toFixed(2));
+            const end = Number((cursor + duration).toFixed(2));
+            cursor += duration;
+            return {
+                word,
+                start,
+                end,
+                emphasized: emphasisSet.has(cleanWord),
+                index
+            };
+        });
+
+        return {
+            ...entry,
+            lineIndex,
+            totalDuration: Number(Math.max(cursor, 1.4).toFixed(2)),
+            wordTimings
+        };
+    });
+}
+
+function simulateClipProcessing(mainClipId, videoId, options = {}) {
+    const {
+        autoSubtitle = true,
+        layout = 'auto_magic',
+        captionPreset = 'viral_neon',
+        captionBrand = null
+    } = options;
     const delay = 15000 + Math.random() * 15000; // 15-30 detik
     setTimeout(() => {
+        const layoutProfile = getLayoutProfile(layout);
+        const captionProfile = getCaptionPresetProfile(captionPreset);
+        const resolvedBrand = captionPreset === 'custom_brand' && captionBrand
+            ? {
+                name: captionBrand.name || 'Custom Brand',
+                accent: captionBrand.accent || captionProfile.accent,
+                textColor: captionBrand.textColor || captionProfile.textColor,
+                background: captionBrand.background || captionProfile.background
+            }
+            : null;
         const momentVariants = [
-            { title: "Momen Lucu & Reaksi", score: "9.5" },
-            { title: "Highlight Pertandingan", score: "8.8" },
-            { title: "Penjelasan Penting", score: "8.2" },
-            { title: "Tips & Trik Viral", score: "9.0" },
-            { title: "Punchline Mantap", score: "8.5" }
+            {
+                title: "Hook pembuka yang langsung ngunci perhatian",
+                score: "9.7",
+                category: "Hook & Retention",
+                platform: layoutProfile.platform,
+                editorialNote: "Opening dipilih karena 3 detik pertamanya punya tensi tinggi dan aman dipakai sebagai cold open tanpa perlu intro panjang.",
+                subtitles: [
+                    { text: "INI bagian yang bikin penonton langsung berhenti scroll.", emphasis: ["INI", "berhenti", "scroll"] },
+                    { text: "Hook pembuka dipotong super rapat biar langsung kena.", emphasis: ["Hook", "super", "langsung"] },
+                    { text: "Transisi masuk dibuat cepat supaya retensi tetap tinggi.", emphasis: ["cepat", "retensi", "tinggi"] }
+                ]
+            },
+            {
+                title: "Penjelasan inti yang paling enak dipotong jadi short",
+                score: "9.3",
+                category: "Value Delivery",
+                platform: "YouTube Shorts, Reels",
+                editorialNote: "Bagian ini cocok dijadikan klip edukatif karena kalimat utamanya jelas, ritmenya stabil, dan mudah diberi subtitle tebal.",
+                subtitles: [
+                    { text: "Poin pentingnya disampaikan dengan jelas di bagian ini.", emphasis: ["Poin", "jelas"] },
+                    { text: "Tempo bicara stabil, jadi subtitle bisa tampil rapi.", emphasis: ["stabil", "subtitle", "rapi"] },
+                    { text: "Bagian ini cocok untuk format edukasi cepat.", emphasis: ["edukasi", "cepat"] }
+                ]
+            },
+            {
+                title: "Reaksi emosional paling kuat di dalam video",
+                score: "9.5",
+                category: "Emotion Spike",
+                platform: "TikTok, Shorts",
+                editorialNote: "Momen reaksi diprioritaskan karena ekspresi dan jeda dramatisnya terasa natural, sehingga hasil edit terlihat lebih premium.",
+                subtitles: [
+                    { text: "Reaksi ini yang bikin klimaks videonya terasa hidup.", emphasis: ["Reaksi", "klimaks", "hidup"] },
+                    { text: "Ekspresi dan pause-nya bikin momen ini lebih kuat.", emphasis: ["Ekspresi", "pause-nya", "kuat"] },
+                    { text: "Potongan ini cocok untuk penonton yang suka konten emosional.", emphasis: ["konten", "emosional"] }
+                ]
+            },
+            {
+                title: "Punchline paling tajam untuk dorong replay",
+                score: "9.1",
+                category: "Punchline",
+                platform: "TikTok, Reels",
+                editorialNote: "Dipilih karena kalimat akhirnya punya efek replay yang kuat dan tetap jelas walau dipotong vertikal 9:16.",
+                subtitles: [
+                    { text: "Bagian akhirnya punya punchline yang gampang diingat.", emphasis: ["punchline", "gampang", "diingat"] },
+                    { text: "Cut dibuat ketat supaya penutupnya terasa nendang.", emphasis: ["Cut", "ketat", "nendang"] },
+                    { text: "Replay value naik karena ending-nya clean.", emphasis: ["Replay", "ending-nya", "clean"] }
+                ]
+            },
+            {
+                title: "Momen transisi cerita yang paling mulus",
+                score: "8.9",
+                category: "Story Beat",
+                platform: "Shorts, LinkedIn Video",
+                editorialNote: "Segmen ini jadi alternatif yang lebih tenang tapi tetap kuat, cocok untuk short yang ingin terlihat lebih rapi dan editorial.",
+                subtitles: [
+                    { text: "Transisi ceritanya paling halus ada di bagian ini.", emphasis: ["Transisi", "halus"] },
+                    { text: "Potongan ini terasa lebih editorial dan tidak terburu-buru.", emphasis: ["editorial", "tidak", "terburu-buru"] },
+                    { text: "Cocok untuk short yang ingin terlihat profesional.", emphasis: ["short", "profesional"] }
+                ]
+            }
         ];
 
         const workingUrls = [
@@ -206,19 +385,37 @@ function simulateClipProcessing(mainClipId, videoId) {
         ];
 
         // Shuffle and pick 3
-        const picked = momentVariants.sort(() => 0.5 - Math.random()).slice(0, 3);
-        const subClips = picked.map((item, i) => ({
+        const picked = [...momentVariants].sort(() => 0.5 - Math.random()).slice(0, 3);
+        const hydratedSubClips = picked.map((item, i) => {
+            const subtitleTimeline = autoSubtitle ? buildSubtitleTimeline(item.subtitles) : [];
+            return {
             id: `sub-${uuidv4()}`,
             url: workingUrls[i % workingUrls.length],
             title: item.title,
-            score: item.score
-        }));
+            score: item.score,
+            category: item.category,
+            platform: item.platform,
+            editorialNote: item.editorialNote,
+            subtitles: autoSubtitle ? item.subtitles : [],
+            subtitleTimeline,
+            subtitleMode: autoSubtitle ? 'burned-in-pro' : 'clean-no-subs',
+            captionPreset,
+            captionPresetLabel: captionProfile.label,
+            captionVibe: captionProfile.vibe,
+            accentColor: captionProfile.accent,
+            captionBrand: resolvedBrand,
+            layoutLabel: layoutProfile.label,
+            finishing: layoutProfile.finish,
+            hook: `${layoutProfile.hookPrefix}: ${item.title}`,
+            durationLabel: ['00:34', '01:05', '00:42'][i % 3]
+        };
+        });
 
-        const mainTitle = picked[0].title + " dan 2 momen lainnya";
+        const mainTitle = `${picked[0].title} + 2 klip siap upload`;
         
         db.run(
             "UPDATE clips SET status = 'completed', title = ?, sub_clips = ? WHERE id = ?",
-            [mainTitle, JSON.stringify(subClips), mainClipId],
+            [mainTitle, JSON.stringify(hydratedSubClips), mainClipId],
             (err) => {
                 if (err) console.error('Simulate error:', err.message);
                 else {
@@ -243,14 +440,15 @@ app.get('/api/clips', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         const parsedRows = rows.map(row => ({
             ...row,
-            sub_clips: row.sub_clips ? JSON.parse(row.sub_clips) : []
+            sub_clips: row.sub_clips ? JSON.parse(row.sub_clips) : [],
+            caption_brand: row.caption_brand ? JSON.parse(row.caption_brand) : null
         }));
         res.json(parsedRows);
     });
 });
 
 app.post('/api/clips', (req, res) => {
-    const { url, autoSubtitle, layout } = req.body;
+    const { url, autoSubtitle, layout, captionPreset, captionBrand } = req.body;
     const userId = req.headers['user-id'];
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     
@@ -267,12 +465,25 @@ app.post('/api/clips', (req, res) => {
             const thumb = getYouTubeThumbnail(vId);
             
             db.run(
-                "INSERT INTO clips (id, user_id, url, title, thumbnail, status) VALUES (?, ?, ?, ?, ?, ?)",
-                [id, userId, url, "Menganalisa video...", thumb, "processing"],
+                "INSERT INTO clips (id, user_id, url, title, thumbnail, status, layout, auto_subtitle, caption_preset, caption_brand) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [id, userId, url, "Menganalisa video...", thumb, "processing", layout || 'auto_magic', autoSubtitle === false ? 0 : 1, captionPreset || 'viral_neon', captionBrand ? JSON.stringify(captionBrand) : null],
                 function(err) {
                     if (err) return res.status(500).json({ error: err.message });
-                    simulateClipProcessing(id, vId);
-                    res.json({ id, status: "processing", thumbnail: thumb });
+                    simulateClipProcessing(id, vId, {
+                        autoSubtitle: autoSubtitle !== false,
+                        layout: layout || 'auto_magic',
+                        captionPreset: captionPreset || 'viral_neon',
+                        captionBrand: captionBrand || null
+                    });
+                    res.json({
+                        id,
+                        status: "processing",
+                        thumbnail: thumb,
+                        layout: layout || 'auto_magic',
+                        autoSubtitle: autoSubtitle !== false,
+                        captionPreset: captionPreset || 'viral_neon',
+                        captionBrand: captionBrand || null
+                    });
                 }
             );
         });

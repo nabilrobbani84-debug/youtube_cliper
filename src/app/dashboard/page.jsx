@@ -19,29 +19,135 @@ function getYouTubeId(url) {
 }
 
 // Helper: Dapatkan thumbnail URL terbaik dari YouTube
-function getYouTubeThumbnail(url, quality = 'hqdefault') {
+function getYouTubeThumbnail(url, quality = 'maxresdefault') {
   const id = getYouTubeId(url);
   if (!id) return null;
   return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
 }
 
-function AnimatedSubtitle({ subtitles, isActive }) {
+function getLayoutLabel(layout) {
+  const labels = {
+    auto_magic: 'Auto Magic',
+    gaussian: 'Gaussian Blur',
+    reframe: 'Auto Reframe',
+  };
+
+  return labels[layout] || 'Auto Magic';
+}
+
+function getCaptionPresetMeta(preset, customBrand = null) {
+  const presets = {
+    viral_neon: {
+      label: 'Viral Neon',
+      accent: '#facc15',
+      textColor: '#ffffff',
+      shadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 0 6px 12px rgba(0,0,0,0.9)',
+      stroke: '1px black',
+      background: 'rgba(0,0,0,0.45)',
+      chip: 'Caption tebal dengan emphasis agresif untuk hook cepat.'
+    },
+    clean_cinema: {
+      label: 'Clean Cinema',
+      accent: '#f8fafc',
+      textColor: '#f8fafc',
+      shadow: '0 10px 24px rgba(0,0,0,0.8)',
+      stroke: '0.6px rgba(15,23,42,0.75)',
+      background: 'rgba(15,23,42,0.3)',
+      chip: 'Tampilan lebih clean dan premium untuk storytelling.'
+    },
+    creator_pop: {
+      label: 'Creator Pop',
+      accent: '#fb7185',
+      textColor: '#ffffff',
+      shadow: '0 0 0 #000, 0 10px 18px rgba(0,0,0,0.75)',
+      stroke: '1px rgba(15,23,42,0.9)',
+      background: 'rgba(30,41,59,0.55)',
+      chip: 'Kontras tinggi dan playful untuk konten creator.'
+    },
+    custom_brand: {
+      label: customBrand?.name || 'Custom Brand',
+      accent: customBrand?.accent || '#22c55e',
+      textColor: customBrand?.textColor || '#ffffff',
+      shadow: '0 10px 24px rgba(0,0,0,0.75)',
+      stroke: '1px rgba(15,23,42,0.88)',
+      background: customBrand?.background || 'rgba(15,23,42,0.45)',
+      chip: 'Preset warna subtitle yang mengikuti brand kamu sendiri.'
+    },
+  };
+
+  return presets[preset] || presets.viral_neon;
+}
+
+function AnimatedSubtitle({ subtitles, subtitleTimeline = [], isActive, captionPreset = 'viral_neon', customBrand = null }) {
   const [subIndex, setSubIndex] = useState(0);
   const [visible, setVisible] = useState(true);
+  const [wordProgress, setWordProgress] = useState(0);
+  const presetMeta = getCaptionPresetMeta(captionPreset, customBrand);
+  const activeSubtitle = subtitles[subIndex] || { text: '' };
+  const activeTimeline = subtitleTimeline[subIndex] || null;
+  const words = typeof activeSubtitle === 'string'
+    ? activeSubtitle.split(' ')
+    : (activeSubtitle.text || '').split(' ');
+  const emphasisWords = new Set(
+    typeof activeSubtitle === 'string'
+      ? []
+      : (activeSubtitle.emphasis || []).map((word) => word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase())
+  );
 
   useEffect(() => {
     if (!isActive) return;
     setSubIndex(0);
     setVisible(true);
+    setWordProgress(0);
+    const durations = subtitleTimeline.length > 0
+      ? subtitleTimeline.map((entry) => Math.max(1800, ((entry.totalDuration || 1.8) * 1000) + 900))
+      : subtitles.map(() => 2800);
+    let currentIndex = 0;
+    let timeoutId = null;
+
+    const advance = () => {
+      const lineDuration = durations[currentIndex] || 2800;
+      timeoutId = setTimeout(() => {
+        setVisible(false);
+        setTimeout(() => {
+          currentIndex = (currentIndex + 1) % Math.max(subtitles.length, 1);
+          setSubIndex(currentIndex);
+          setVisible(true);
+          setWordProgress(0);
+          advance();
+        }, 220);
+      }, lineDuration);
+    };
+
+    advance();
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isActive, subtitles, subtitleTimeline]);
+
+  useEffect(() => {
+    if (!isActive || words.length === 0) return;
+    setWordProgress(0);
+    if (activeTimeline?.wordTimings?.length) {
+      const timers = activeTimeline.wordTimings.map((timing, index) => setTimeout(() => {
+        setWordProgress(index);
+      }, Math.max(0, timing.start * 1000)));
+      return () => timers.forEach((timer) => clearTimeout(timer));
+    }
+
+    const step = Math.max(140, Math.floor(1500 / Math.max(words.length, 1)));
     const interval = setInterval(() => {
-      setVisible(false);
-      setTimeout(() => {
-        setSubIndex(i => (i + 1) % subtitles.length);
-        setVisible(true);
-      }, 300);
-    }, 2800);
+      setWordProgress((value) => {
+        if (value >= words.length - 1) {
+          clearInterval(interval);
+          return value;
+        }
+        return value + 1;
+      });
+    }, step);
+
     return () => clearInterval(interval);
-  }, [isActive, subtitles.length]);
+  }, [isActive, subIndex, words.length, activeTimeline]);
 
   return (
     <div className="absolute inset-x-0 bottom-[22%] flex justify-center pointer-events-none z-10 px-6">
@@ -54,16 +160,24 @@ function AnimatedSubtitle({ subtitles, isActive }) {
         }}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
-          {subtitles[subIndex].split(' ').map((word, wi) => {
-            const isHighlighted = word === word.toUpperCase() && word.length > 2 && !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(word);
+          {words.map((word, wi) => {
+            const normalizedWord = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
+            const isHighlighted = emphasisWords.has(normalizedWord) || (word === word.toUpperCase() && word.length > 2 && !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(word));
+            const isSpoken = wi <= wordProgress;
             return (
               <span 
                 key={wi} 
-                className={`font-black text-[25px] md:text-[32px] tracking-tight uppercase px-[6px] py-[2px] rounded-lg ${isHighlighted ? 'text-yellow-400 bg-black/50' : 'text-white'}`}
+                className="font-black text-[25px] md:text-[32px] tracking-tight uppercase px-[6px] py-[2px] rounded-lg"
                 style={{
-                  textShadow: '3px 3px 0 #000, -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 0 6px 12px rgba(0,0,0,0.9)',
-                  WebkitTextStroke: '1px black',
-                  lineHeight: '1.2'
+                  color: isHighlighted ? presetMeta.accent : presetMeta.textColor,
+                  background: isHighlighted ? presetMeta.background : 'transparent',
+                  textShadow: presetMeta.shadow,
+                  WebkitTextStroke: presetMeta.stroke,
+                  lineHeight: '1.2',
+                  transform: isSpoken ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.92)',
+                  opacity: isSpoken ? 1 : 0.35,
+                  filter: isSpoken ? 'none' : 'blur(0.2px)',
+                  transition: 'transform 180ms ease, opacity 180ms ease, filter 180ms ease, color 180ms ease'
                 }}
               >
                 {word}
@@ -71,6 +185,83 @@ function AnimatedSubtitle({ subtitles, isActive }) {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniWaveformTimeline({ subtitleTimeline = [], accentColor = '#facc15', activeIndex = 0 }) {
+  const activeLine = subtitleTimeline[activeIndex] || null;
+  const bars = activeLine?.wordTimings?.length
+    ? activeLine.wordTimings.map((timing, index) => ({
+        id: `${activeIndex}-${index}`,
+        height: 28 + Math.round(((timing.end - timing.start) * 100) % 42),
+        emphasized: timing.emphasized,
+        label: timing.word
+      }))
+    : Array.from({ length: 14 }, (_, index) => ({
+        id: `fallback-${index}`,
+        height: 24 + ((index * 11) % 36),
+        emphasized: index % 4 === 0,
+        label: ''
+      }));
+
+  return (
+    <div style={{
+      background: 'linear-gradient(145deg, rgba(2,6,23,0.82), rgba(15,23,42,0.92))',
+      border: '1px solid rgba(148,163,184,0.18)',
+      borderRadius: 18,
+      padding: '14px 14px 12px',
+      marginBottom: 16,
+      boxShadow: '0 10px 28px rgba(0,0,0,0.35)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div>
+          <div style={{ color: '#cbd5e1', fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Waveform Preview</div>
+          <div style={{ color: '#94a3b8', fontSize: 11 }}>Timing subtitle per kata dan emphasis aktif</div>
+        </div>
+        <div style={{ color: accentColor, fontSize: 11, fontWeight: 800, letterSpacing: '0.06em' }}>
+          {activeLine?.totalDuration ? `${activeLine.totalDuration.toFixed(2)}s` : 'LIVE'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 74, marginBottom: 10 }}>
+        {bars.map((bar, index) => (
+          <div
+            key={bar.id}
+            title={bar.label}
+            style={{
+              flex: 1,
+              minWidth: 8,
+              height: `${bar.height}px`,
+              borderRadius: 999,
+              background: bar.emphasized
+                ? `linear-gradient(180deg, ${accentColor}, rgba(255,255,255,0.16))`
+                : 'linear-gradient(180deg, rgba(148,163,184,0.9), rgba(51,65,85,0.7))',
+              boxShadow: bar.emphasized ? `0 0 0 1px ${accentColor}33, 0 8px 20px ${accentColor}22` : 'none',
+              opacity: index <= Math.max(0, activeLine?.wordTimings?.length ? activeLine.wordTimings.length - 1 : 999) ? 1 : 0.65
+            }}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {subtitleTimeline.map((line, index) => (
+          <div
+            key={`line-${index}`}
+            style={{
+              padding: '5px 9px',
+              borderRadius: 999,
+              background: index === activeIndex ? `${accentColor}22` : 'rgba(255,255,255,0.06)',
+              border: index === activeIndex ? `1px solid ${accentColor}55` : '1px solid rgba(148,163,184,0.14)',
+              color: index === activeIndex ? '#f8fafc' : '#94a3b8',
+              fontSize: 11,
+              fontWeight: 700
+            }}
+          >
+            Line {index + 1}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -113,76 +304,28 @@ function ClipViewerOverlay({ clip, onClose }) {
   }
 
 
-  // Gunakan data sub-clips nyata dari backend atau fallback jika belum ada
-  const clipsData = (clip.sub_clips && clip.sub_clips.length > 0) ? clip.sub_clips : [
-    {
-      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
-      title: "Highlight Utama: " + (clip.title || "Klip Video"),
-      score: "9.8"
-    },
-    {
-      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
-      title: "Momen Intens: " + (clip.title || "Klip Video"),
-      score: "9.5"
-    },
-    {
-      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_232.52-264.12_final.mp4",
-      title: "Reaksi Puncak: " + (clip.title || "Klip Video"),
-      score: "8.9"
-    },
-    {
-      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
-      title: "Poin Penting: " + (clip.title || "Klip Video"),
-      score: "8.6"
-    },
-    {
-      url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
-      title: "Momen Unik: " + (clip.title || "Klip Video"),
-      score: "8.2"
-    }
-  ];
+  const clipsData = (clip.sub_clips && clip.sub_clips.length > 0)
+    ? clip.sub_clips
+    : [{
+        url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
+        title: clip.title || "Klip siap upload",
+        score: "9.2",
+        category: "Highlight",
+        platform: "TikTok, Reels, Shorts",
+        editorialNote: "Klip fallback ini ditampilkan untuk menjaga preview tetap hidup sambil menunggu metadata lengkap dari proses backend.",
+        subtitles: ["Preview hasil render final."],
+        subtitleMode: "burned-in-pro",
+        captionPreset: clip.caption_preset || 'viral_neon',
+        captionPresetLabel: getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).label,
+        captionVibe: getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).chip,
+        captionBrand: clip.caption_brand || null,
+        layoutLabel: getLayoutLabel(clip.layout),
+        finishing: "Professional short-form finish",
+        hook: "Potongan utama yang siap dipakai",
+        durationLabel: "00:45"
+      }];
 
   const videoId = getYouTubeId(clip.url);
-
-  // Timestamps berbeda untuk tiap klip (1 menit interval)
-  const startTimes = [30, 120, 240, 360, 480];
-
-  // Subtitle set per klip (Terjemahan Bahasa Indonesia) dengan Highlight otomatis huruf kapital & emoji
-  const subtitleSets = [
-    ["Ini BENAR-BENAR tidak bisa dipercaya! 🤯", "Kalian HARUS melihat apa yang terjadi di sini. 👀", "Semuanya BERUBAH dalam sekejap! ⚡", "Inilah momen yang paling DITUNGGU-TUNGGU! 🔥"],
-    ["Hasil analisis ini SANGAT mengejutkan semua pihak. 📊", "Bahkan PARA AHLI pun tidak bisa memprediksinya. 🧠", "Perhatikan baik-baik DETAIL tersembunyi ini. 🔍", "Tonton sampai HABIS, pasti kalian terkejut! 😱"],
-    ["Reaksi spontan yang TIDAK TERDUGA ini luar biasa. 🎭", "EMOSI yang sesungguhnya terekam jelas di sini. ❤️‍🔥", "Ini adalah TITIK BALIK dari seluruh percakapan. 🔄", "Semua mata TERTUJU pada kejadian ini. 👁️"],
-    ["Terkadang kita MELUPAKAN fakta penting seperti ini. 💡", "Inilah ALASAN mengapa strategi ini krusial. 🎯", "Mari kita bedah secara mendalam BERSAMA. 🤝", "Kesimpulan akhir yang MEMBUKA wawasan baru. 🚀"],
-    ["Keseruan di BALIK LAYAR yang jarang terlihat. 🎬", "Interaksi JUJUR yang membuat suasana hidup. ✨", "Kejadian tak terduga ini MENCAIRKAN suasana. 🧊", "Momen santai tapi PENUH MAKNA yang berharga. 💎"],
-  ];
-
-  const translationDetails = [
-    {
-      desc: "AI mendeteksi klip pendek 1 menit ini sebagai puncak narasi video. Mengandung konflik utama dengan retensi penonton diprediksi sangat tinggi.",
-      platform: "TikTok, Reels",
-      category: "Konflik & Debat"
-    },
-    {
-      desc: "Potongan video berdurasi 60 detik ini dipilih karena memberikan penjelasan mendalam namun ringkas dari pembicara.",
-      platform: "YouTube Shorts",
-      category: "Edukasi Singkat"
-    },
-    {
-      desc: "Klip 1 menit dengan punchline atau reaksi emosional yang kuat. Ritme percakapan cepat diikuti pause dramatis ciptakan engagement tinggi.",
-      platform: "Semua Platform",
-      category: "Emosional & Komedi"
-    },
-    {
-      desc: "Durasi 60 detik yang merangkum poin penting atau kesimpulan kunci dari keseluruhan diskusi yang diangkat.",
-      platform: "LinkedIn, Twitter",
-      category: "Kutipan Profesional"
-    },
-    {
-      desc: "Klip 1 menit yang menampilkan momen kasual atau interaksi menarik. Sangat efektif untuk membangun kedekatan audiens.",
-      platform: "TikTok, Reels",
-      category: "Behind the Scenes"
-    }
-  ];
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: '#000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -216,25 +359,45 @@ function ClipViewerOverlay({ clip, onClose }) {
         {clipsData.map((data, index) => {
           const isActive = currentIndex === index;
           const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "8.5";
-          const currentSubtitles = subtitleSets[index % subtitleSets.length];
-          const startTime = startTimes[index] || 30;
+          const currentSubtitles = data.subtitles && data.subtitles.length > 0
+            ? data.subtitles
+            : [data.hook || "Klip profesional siap tayang."];
+          const category = data.category || 'Highlight';
+          const platform = data.platform || 'TikTok, Reels, Shorts';
+          const editorialNote = data.editorialNote || 'Klip ini dipilih karena punya tempo yang enak, hook kuat, dan aman untuk format vertikal.';
+          const finishing = data.finishing || 'Professional short-form finish';
+          const hook = data.hook || data.title;
+          const durationLabel = data.durationLabel || '00:45';
+          const subtitleMode = data.subtitleMode || 'burned-in-pro';
+          const captionPreset = data.captionPreset || clip.caption_preset || 'viral_neon';
+          const customBrand = data.captionBrand || clip.caption_brand || null;
+          const captionPresetLabel = data.captionPresetLabel || getCaptionPresetMeta(captionPreset, customBrand).label;
+          const captionVibe = data.captionVibe || getCaptionPresetMeta(captionPreset, customBrand).chip;
+          const subtitleTimeline = data.subtitleTimeline || [];
+          const accentColor = data.accentColor || getCaptionPresetMeta(captionPreset, customBrand).accent;
 
           return (
             <div key={index} style={{ position: 'relative', width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: '#000' }}>
 
-              {/* ── VIDEO (cropped to vertical 9:16) ── */}
-              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', width: '316.5%', height: '100%', left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
-                  <iframe
-                    style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#000' }}
-                    src={`https://www.youtube.com/embed/${videoId}?autoplay=${isActive ? 1 : 0}&mute=0&controls=0&modestbranding=1&rel=0&start=${startTime}&fs=0&iv_load_policy=3&playsinline=1&enablejsapi=0`}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  />
-                </div>
+              {/* ── VIDEO FINAL RESULT ── */}
+              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: 'radial-gradient(circle at top, rgba(79,70,229,0.35), transparent 40%), #000' }}>
+                <video
+                  key={`${data.url}-${isActive ? 'active' : 'idle'}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  src={data.url}
+                  poster={clip.thumbnail || getYouTubeThumbnail(clip.url)}
+                  autoPlay={isActive}
+                  muted
+                  playsInline
+                  loop
+                  controls={false}
+                  preload={isActive ? 'auto' : 'metadata'}
+                />
               </div>
 
               {/* ── GRADIENT OVERLAYS ── */}
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 30%, transparent 50%, rgba(0,0,0,0.85) 100%)', pointerEvents: 'none' }} />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,6,23,0.15) 0%, rgba(2,6,23,0.05) 18%, rgba(2,6,23,0.25) 45%, rgba(2,6,23,0.96) 100%)', pointerEvents: 'none' }} />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(99,102,241,0.1), transparent 30%, transparent 70%, rgba(16,185,129,0.15))', pointerEvents: 'none' }} />
 
               {/* ── SCORE BADGE (top-right) ── */}
               <div style={{ position: 'absolute', top: 70, right: 16, background: 'linear-gradient(135deg, rgba(16,185,129,0.9) 0%, rgba(6,95,70,0.95) 100%)', border: '1px solid rgba(52,211,153,0.5)', boxShadow: '0 4px 15px rgba(16,185,129,0.4)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -248,14 +411,40 @@ function ClipViewerOverlay({ clip, onClose }) {
                 <span style={{ color: 'rgba(255,255,255,0.95)', fontWeight: 800, fontSize: 13, letterSpacing: '0.02em' }}>Klip #{index + 1} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>dari {clipsData.length}</span></span>
               </div>
 
+              <div style={{ position: 'absolute', top: 122, left: 16, display: 'flex', gap: 8, flexWrap: 'wrap', zIndex: 10 }}>
+                <span style={{ background: 'rgba(15,23,42,0.65)', color: '#f8fafc', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)', borderRadius: 999, padding: '7px 12px', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{data.layoutLabel || getLayoutLabel(clip.layout)}</span>
+                <span style={{ background: 'rgba(79,70,229,0.28)', color: '#e0e7ff', border: '1px solid rgba(165,180,252,0.35)', backdropFilter: 'blur(8px)', borderRadius: 999, padding: '7px 12px', fontSize: 11, fontWeight: 700 }}>{durationLabel}</span>
+              </div>
+
               {/* ── ANIMATED SUBTITLE ── */}
-              <AnimatedSubtitle subtitles={currentSubtitles} isActive={isActive} />
+              <AnimatedSubtitle
+                subtitles={currentSubtitles}
+                subtitleTimeline={subtitleTimeline}
+                isActive={isActive}
+                captionPreset={captionPreset}
+                customBrand={customBrand}
+              />
 
               {/* ── BOTTOM INFO + ACTIONS ── */}
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 16px 20px', zIndex: 10 }}>
 
                 {/* Title */}
-                <h3 style={{ color: 'white', fontWeight: 900, fontSize: 19, marginBottom: 12, lineHeight: 1.3, textShadow: '0 4px 12px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.8)', paddingRight: '40px' }}>{data.title}</h3>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', padding: '7px 12px', borderRadius: 999, backdropFilter: 'blur(10px)' }}>
+                  <Sparkles size={13} color="#c4b5fd" />
+                  <span style={{ color: '#e9d5ff', fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{finishing}</span>
+                </div>
+
+                <h3 style={{ color: 'white', fontWeight: 900, fontSize: 19, marginBottom: 10, lineHeight: 1.3, textShadow: '0 4px 12px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.8)', paddingRight: '40px' }}>{data.title}</h3>
+
+                <p style={{ color: 'rgba(255,255,255,0.86)', fontSize: 13, lineHeight: 1.55, margin: '0 0 14px 0', maxWidth: 520 }}>
+                  {hook}
+                </p>
+
+                <MiniWaveformTimeline
+                  subtitleTimeline={subtitleTimeline}
+                  accentColor={accentColor}
+                  activeIndex={Math.min(currentIndex, Math.max(0, subtitleTimeline.length - 1))}
+                />
 
                 {/* Translation box */}
                 <div style={{ background: 'linear-gradient(145deg, rgba(15,12,45,0.85), rgba(7,5,25,0.95))', backdropFilter: 'blur(16px)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 16, padding: '14px', marginBottom: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
@@ -268,16 +457,23 @@ function ClipViewerOverlay({ clip, onClose }) {
                     </div>
                   </div>
                   <p style={{ color: 'rgba(226,232,240,0.95)', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px 0', fontWeight: 500 }}>
-                    {translationDetails[index % translationDetails.length].desc}
+                    {editorialNote}
                   </p>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Kategori:</span> {translationDetails[index % translationDetails.length].category}
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Kategori:</span> {category}
                     </div>
                     <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Target:</span> {translationDetails[index % translationDetails.length].platform}
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Target:</span> {platform}
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Subtitle:</span> {subtitleMode === 'burned-in-pro' ? 'Burned-in Pro' : 'Clean'}
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{color: '#94a3b8', fontWeight: 500}}>Preset:</span> {captionPresetLabel}
                     </div>
                   </div>
+                  <p style={{ color: 'rgba(191,219,254,0.9)', fontSize: 11, lineHeight: 1.5, margin: '10px 0 0 0' }}>{captionVibe}</p>
                 </div>
 
                 {/* Action buttons */}
@@ -294,7 +490,7 @@ function ClipViewerOverlay({ clip, onClose }) {
                     )}
                   </button>
                   <a
-                    href={`https://youtu.be/${videoId}?t=${startTime}`}
+                    href={videoId ? `https://youtu.be/${videoId}` : clip.url}
                     target="_blank"
                     rel="noreferrer"
                     style={{ flex: 1, height: 48, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}
@@ -351,20 +547,22 @@ function ProcessingStatus({ createdAt }) {
     return () => clearInterval(interval);
   }, [createdAt]);
 
-  // Simulate total 30 seconds processing
-  const totalTime = 30000; 
-  const progressPercent = Math.min(99, Math.max(2, (elapsed / totalTime) * 100)); // cap at 99%
-  
-  let statusText = "Mengekstrak audio...";
-  if (progressPercent > 85) statusText = "Merender video final & auto-crop...";
-  else if (progressPercent > 60) statusText = "Mencari highlight & punchline...";
-  else if (progressPercent > 35) statusText = "AI mentranskripsi & subtitle...";
-  else if (progressPercent > 10) statusText = "Mengunduh video sumber...";
+  const pipelineStages = [
+    { label: 'Ingest video YouTube', detail: 'Mengambil metadata, thumbnail, dan sumber video.', start: 0, end: 12 },
+    { label: 'Transkripsi & diarization', detail: 'AI membaca ucapan, jeda, dan momen penekanan speaker.', start: 12, end: 34 },
+    { label: 'Cari hook & highlight', detail: 'Model menilai retensi, punchline, dan momen paling tajam.', start: 34, end: 63 },
+    { label: 'Sync subtitle per kata', detail: 'Caption disusun dengan timing kata, emphasis, dan pacing.', start: 63, end: 82 },
+    { label: 'Render vertical final', detail: 'Auto-crop, styling, dan packaging hasil siap upload.', start: 82, end: 100 },
+  ];
+
+  const totalTime = 42000;
+  const progressPercent = Math.min(99, Math.max(3, (elapsed / totalTime) * 100));
+  const activeStage = pipelineStages.find((stage) => progressPercent >= stage.start && progressPercent < stage.end) || pipelineStages[pipelineStages.length - 1];
 
   return (
     <div style={{ width: '100%', marginTop: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, marginBottom: '6px', color: '#6366f1' }}>
-        <span className="animate-pulse">{statusText}</span>
+        <span className="animate-pulse">{activeStage.label}</span>
         <span>{Math.round(progressPercent)}%</span>
       </div>
       <div style={{ width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', height: '6px', overflow: 'hidden' }}>
@@ -378,12 +576,38 @@ function ProcessingStatus({ createdAt }) {
           }} 
         />
       </div>
+      <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '12px', background: 'linear-gradient(135deg, #eef2ff, #f8fafc)', border: '1px solid #dbeafe' }}>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#3730a3', marginBottom: '4px' }}>{activeStage.detail}</div>
+        <div style={{ display: 'grid', gap: '6px' }}>
+          {pipelineStages.map((stage, index) => {
+            const done = progressPercent >= stage.end;
+            const active = activeStage.label === stage.label;
+            return (
+              <div key={stage.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: active ? '#312e81' : done ? '#475569' : '#94a3b8', fontWeight: active ? 700 : 600 }}>
+                <span style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 999,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: done ? '#6366f1' : active ? '#c7d2fe' : '#e2e8f0',
+                  color: done ? '#fff' : active ? '#4338ca' : '#64748b',
+                  fontSize: '0.65rem'
+                }}>{done ? '✓' : index + 1}</span>
+                <span>{stage.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function Home() {
   const { user, fetchUser } = useUser();
+  const lastSyncedBrandRef = useRef('');
   const [url, setUrl] = useState('');
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -391,6 +615,13 @@ export default function Home() {
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [autoSubtitle, setAutoSubtitle] = useState(true);
   const [selectedLayout, setSelectedLayout] = useState('auto_magic');
+  const [selectedCaptionPreset, setSelectedCaptionPreset] = useState('viral_neon');
+  const [customCaptionBrand, setCustomCaptionBrand] = useState({
+    name: 'Brand Saya',
+    accent: '#22c55e',
+    textColor: '#ffffff',
+    background: 'rgba(15,23,42,0.45)'
+  });
   const [showInfo, setShowInfo] = useState(true);
 
   const fetchClips = async () => {
@@ -406,6 +637,15 @@ export default function Home() {
   };
 
   useEffect(() => {
+    const savedCaptionBrand = localStorage.getItem('youclipCustomCaptionBrand');
+    if (savedCaptionBrand) {
+      try {
+        setCustomCaptionBrand(JSON.parse(savedCaptionBrand));
+      } catch (error) {
+        console.error('Failed to parse custom caption brand:', error);
+      }
+    }
+
     fetchClips();
     const interval = setInterval(() => {
       fetchClips();
@@ -421,6 +661,46 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (user?.caption_brand) {
+      const nextSerialized = JSON.stringify(user.caption_brand);
+      if (nextSerialized !== JSON.stringify(customCaptionBrand)) {
+        lastSyncedBrandRef.current = nextSerialized;
+        setCustomCaptionBrand(user.caption_brand);
+      }
+    }
+  }, [user?.caption_brand]);
+
+  useEffect(() => {
+    localStorage.setItem('youclipCustomCaptionBrand', JSON.stringify(customCaptionBrand));
+  }, [customCaptionBrand]);
+
+  useEffect(() => {
+    const userId = localStorage.getItem('userId');
+    if (!userId || !customCaptionBrand?.name) return;
+    const serializedBrand = JSON.stringify(customCaptionBrand);
+    if (serializedBrand === lastSyncedBrandRef.current) return;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        await fetch('http://localhost:5000/api/user/caption-brand', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'user-id': userId
+          },
+          body: JSON.stringify({ captionBrand: customCaptionBrand })
+        });
+        lastSyncedBrandRef.current = serializedBrand;
+        fetchUser();
+      } catch (error) {
+        console.error('Failed to save caption brand:', error);
+      }
+    }, 700);
+
+    return () => clearTimeout(timeoutId);
+  }, [customCaptionBrand, fetchUser]);
+
   const handleProcess = async () => {
     if (!url) return alert('Masukkan link YouTube terlebih dahulu!');
     if (!user || user.credits <= 0) return alert('Kredit Anda tidak mencukupi (0), silakan Top Up terlebih dahulu.');
@@ -433,7 +713,13 @@ export default function Home() {
           'Content-Type': 'application/json',
           'user-id': localStorage.getItem('userId')
         },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({
+          url,
+          autoSubtitle,
+          layout: selectedLayout,
+          captionPreset: selectedCaptionPreset,
+          captionBrand: selectedCaptionPreset === 'custom_brand' ? customCaptionBrand : null
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -535,6 +821,95 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+
+              <h4 className="advanced-section-title">Preset Caption Brand</h4>
+              <p className="layout-subtitle">Atur rasa subtitle supaya hasil klip lebih punya identitas visual.</p>
+
+              <div className="layout-options caption-preset-grid">
+                <div className={`layout-card ${selectedCaptionPreset === 'viral_neon' ? 'selected' : ''}`} onClick={() => setSelectedCaptionPreset('viral_neon')}>
+                  <div className="layout-badge">HOT</div>
+                  <h5>Viral Neon</h5>
+                  <p>Subtitle besar, kuning menyala, cocok buat hook cepat dan clip viral.</p>
+                  <div className="caption-preview caption-preview-neon">
+                    <span>STOP</span>
+                    <small>scroll dulu</small>
+                  </div>
+                </div>
+
+                <div className={`layout-card ${selectedCaptionPreset === 'clean_cinema' ? 'selected' : ''}`} onClick={() => setSelectedCaptionPreset('clean_cinema')}>
+                  <h5>Clean Cinema</h5>
+                  <p>Lebih minimal, tenang, dan terlihat premium untuk format storytelling.</p>
+                  <div className="caption-preview caption-preview-cinema">
+                    <span>ini bagian</span>
+                    <small>paling penting</small>
+                  </div>
+                </div>
+
+                <div className={`layout-card ${selectedCaptionPreset === 'creator_pop' ? 'selected' : ''}`} onClick={() => setSelectedCaptionPreset('creator_pop')}>
+                  <div className="layout-badge beta-badge">FRESH</div>
+                  <h5>Creator Pop</h5>
+                  <p>Warna lebih playful dan kontras tinggi untuk creator yang enerjik.</p>
+                  <div className="caption-preview caption-preview-pop">
+                    <span>WAJIB</span>
+                    <small>lihat ending-nya</small>
+                  </div>
+                </div>
+
+                <div className={`layout-card ${selectedCaptionPreset === 'custom_brand' ? 'selected' : ''}`} onClick={() => setSelectedCaptionPreset('custom_brand')}>
+                  <div className="layout-badge">BRAND</div>
+                  <h5>{customCaptionBrand.name || 'Custom Brand'}</h5>
+                  <p>Pakai palet warna sendiri supaya caption langsung terasa milik brand kamu.</p>
+                  <div className="caption-preview caption-preview-custom" style={{ background: customCaptionBrand.background, borderColor: customCaptionBrand.accent }}>
+                    <span style={{ color: customCaptionBrand.accent }}>BRAND</span>
+                    <small style={{ color: customCaptionBrand.textColor }}>subtitle signature</small>
+                  </div>
+                </div>
+              </div>
+
+              {selectedCaptionPreset === 'custom_brand' && (
+                <div className="custom-brand-panel">
+                  <div className="custom-brand-header">
+                    <h5>Atur Preset Brand Sendiri</h5>
+                    <p>Nama dan warna ini dipakai untuk preview subtitle dan hasil mock clip berikutnya.</p>
+                  </div>
+                  <div className="custom-brand-grid">
+                    <label className="custom-brand-field">
+                      <span>Nama Brand</span>
+                      <input
+                        type="text"
+                        value={customCaptionBrand.name}
+                        onChange={(e) => setCustomCaptionBrand((prev) => ({ ...prev, name: e.target.value }))}
+                        placeholder="Contoh: Fandi Media"
+                      />
+                    </label>
+                    <label className="custom-brand-field color-field">
+                      <span>Warna Accent</span>
+                      <input
+                        type="color"
+                        value={customCaptionBrand.accent}
+                        onChange={(e) => setCustomCaptionBrand((prev) => ({ ...prev, accent: e.target.value }))}
+                      />
+                    </label>
+                    <label className="custom-brand-field color-field">
+                      <span>Warna Teks</span>
+                      <input
+                        type="color"
+                        value={customCaptionBrand.textColor}
+                        onChange={(e) => setCustomCaptionBrand((prev) => ({ ...prev, textColor: e.target.value }))}
+                      />
+                    </label>
+                    <label className="custom-brand-field">
+                      <span>Background Caption</span>
+                      <input
+                        type="text"
+                        value={customCaptionBrand.background}
+                        onChange={(e) => setCustomCaptionBrand((prev) => ({ ...prev, background: e.target.value }))}
+                        placeholder="rgba(15,23,42,0.45)"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -587,7 +962,8 @@ export default function Home() {
                   ) : (
                     <span className="badge badge-dark" style={{backgroundColor: '#eab308'}}>MEMPROSES</span>
                   )}
-                  <span className="badge badge-light">AUTO MAGIC</span>
+                  <span className="badge badge-light">{getLayoutLabel(clip.layout)}</span>
+                  <span className="badge badge-light badge-caption">{getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).label}</span>
                 </div>
                 {(clip.thumbnail || getYouTubeThumbnail(clip.url)) ? (
                   <img
@@ -626,7 +1002,7 @@ export default function Home() {
                   {clip.url}
                 </a>
                 <div className="result-meta">
-                  {new Date(clip.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace('pukul ', '')} &bull; Auto Magic &bull; <span className="meta-subtitle">Subtitle</span>
+                  {new Date(clip.created_at).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace('pukul ', '')} &bull; {getLayoutLabel(clip.layout)} &bull; <span className="meta-subtitle">{clip.auto_subtitle === 0 ? 'Clean' : 'Subtitle Pro'}</span> &bull; {getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).label}
                 </div>
                 <div className="result-meta meta-duration" style={{ flexGrow: 1 }}>
                   {clip.status === 'completed' ? 'Selesai dalam 17m' : (

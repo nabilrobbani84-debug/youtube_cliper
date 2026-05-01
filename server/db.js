@@ -17,6 +17,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 google_id TEXT UNIQUE,
                 picture TEXT,
                 display_name TEXT,
+                caption_brand TEXT,
                 credits INTEGER DEFAULT 15,
                 role TEXT DEFAULT 'user',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -33,6 +34,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 db.run("ALTER TABLE users ADD COLUMN google_id TEXT", () => {});
                 db.run("ALTER TABLE users ADD COLUMN picture TEXT", () => {});
                 db.run("ALTER TABLE users ADD COLUMN display_name TEXT", () => {});
+                db.run("ALTER TABLE users ADD COLUMN caption_brand TEXT", () => {});
             });
 
             // Clips table
@@ -43,12 +45,20 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 title TEXT,
                 thumbnail TEXT,
                 status TEXT DEFAULT 'processing',
+                layout TEXT DEFAULT 'auto_magic',
+                auto_subtitle INTEGER DEFAULT 1,
+                caption_preset TEXT DEFAULT 'viral_neon',
+                caption_brand TEXT,
                 sub_clips TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`);
             
             // Tambah kolom ke clips jika belum ada
             db.run("ALTER TABLE clips ADD COLUMN user_id INTEGER", () => {});
+            db.run("ALTER TABLE clips ADD COLUMN layout TEXT DEFAULT 'auto_magic'", () => {});
+            db.run("ALTER TABLE clips ADD COLUMN auto_subtitle INTEGER DEFAULT 1", () => {});
+            db.run("ALTER TABLE clips ADD COLUMN caption_preset TEXT DEFAULT 'viral_neon'", () => {});
+            db.run("ALTER TABLE clips ADD COLUMN caption_brand TEXT", () => {});
             db.run("ALTER TABLE clips ADD COLUMN sub_clips TEXT", () => {});
 
             // Tickets table
