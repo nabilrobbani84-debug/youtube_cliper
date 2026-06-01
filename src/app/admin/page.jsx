@@ -2,6 +2,7 @@
 import { Users, Video, Ticket, Zap, LogOut, CheckCircle, XCircle, DollarSign, Wallet } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiUrl } from '../../lib/api';
 import './admin.css';
 
 export default function Admin() {
@@ -18,22 +19,22 @@ export default function Admin() {
 
   const fetchData = async () => {
     try {
-      const statsRes = await fetch('http://localhost:5000/api/admin/stats');
+      const statsRes = await fetch(apiUrl('/api/admin/stats'));
       if (statsRes.ok) setStats(await statsRes.json());
       
-      const usersRes = await fetch('http://localhost:5000/api/admin/users');
+      const usersRes = await fetch(apiUrl('/api/admin/users'));
       if (usersRes.ok) setUsers(await usersRes.json());
       
-      const ticketsRes = await fetch('http://localhost:5000/api/admin/tickets');
+      const ticketsRes = await fetch(apiUrl('/api/admin/tickets'));
       if (ticketsRes.ok) setTickets(await ticketsRes.json());
       
-      const txRes = await fetch('http://localhost:5000/api/admin/transactions');
+      const txRes = await fetch(apiUrl('/api/admin/transactions'));
       if (txRes.ok) setTransactions(await txRes.json());
 
-      const wdRes = await fetch('http://localhost:5000/api/admin/withdrawals');
+      const wdRes = await fetch(apiUrl('/api/admin/withdrawals'));
       if (wdRes.ok) setWithdrawals(await wdRes.json());
 
-      const pkgRes = await fetch('http://localhost:5000/api/packages');
+      const pkgRes = await fetch(apiUrl('/api/packages'));
       if (pkgRes.ok) setPackages(await pkgRes.json());
     } catch (e) {
       console.error(e);
@@ -41,14 +42,53 @@ export default function Admin() {
   };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    const userId = localStorage.getItem('userId');
+    const userRole = localStorage.getItem('userRole');
+    if (!userId) {
+      navigate.replace('/login');
+      return;
+    }
+
+    let interval;
+    const initAdminSession = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/user'), {
+          headers: { 'user-id': userId }
+        });
+
+        if (!res.ok) {
+          localStorage.removeItem('userId');
+          localStorage.removeItem('userRole');
+          localStorage.removeItem('userPicture');
+          localStorage.removeItem('userName');
+          navigate.replace('/login');
+          return;
+        }
+
+        const data = await res.json();
+        if ((userRole && userRole !== 'admin') || data.role !== 'admin') {
+          navigate.replace('/dashboard');
+          return;
+        }
+
+        fetchData();
+        interval = setInterval(fetchData, 10000);
+      } catch (error) {
+        console.error(error);
+        navigate.replace('/login');
+      }
+    };
+
+    initAdminSession();
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [navigate]);
 
   const updateTicketStatus = async (id, status) => {
     try {
-      await fetch(`http://localhost:5000/api/admin/tickets/${id}`, {
+      await fetch(apiUrl(`/api/admin/tickets/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
@@ -61,7 +101,7 @@ export default function Admin() {
 
   const updateTxStatus = async (id, status) => {
     try {
-      await fetch(`http://localhost:5000/api/admin/transactions/${id}`, {
+      await fetch(apiUrl(`/api/admin/transactions/${id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
@@ -74,7 +114,7 @@ export default function Admin() {
 
   const approveWithdrawal = async (id) => {
     try {
-      await fetch(`http://localhost:5000/api/admin/withdrawals/approve`, {
+      await fetch(apiUrl('/api/admin/withdrawals/approve'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ withdrawalId: id })
@@ -87,7 +127,7 @@ export default function Admin() {
 
   const addCredits = async (userId, amount) => {
     try {
-      await fetch(`http://localhost:5000/api/admin/users/${userId}/credits`, {
+      await fetch(apiUrl(`/api/admin/users/${userId}/credits`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount })
@@ -290,7 +330,7 @@ export default function Admin() {
                       style={{width: '100%', marginTop: 'auto'}}
                       onClick={async () => {
                         try {
-                          const res = await fetch(`http://localhost:5000/api/admin/packages/${pkg.id}`, {
+                          const res = await fetch(apiUrl(`/api/admin/packages/${pkg.id}`), {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(pkg)

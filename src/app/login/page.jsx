@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from "next/navigation";
 import { Scissors, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { apiUrl } from '../../lib/api';
 
 // ================================================================
 // Isi GOOGLE_CLIENT_ID dengan Client ID dari Google Cloud Console
@@ -10,9 +11,8 @@ import { Scissors, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 // ================================================================
 const GOOGLE_CLIENT_ID = '';
 
-const API_URL = 'http://localhost:5000';
-
 export default function Login() {
+  const navigate = useRouter();
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -21,7 +21,41 @@ export default function Login() {
   const [googleReady, setGoogleReady] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const navigate = useRouter();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mode = new URLSearchParams(window.location.search).get('mode');
+    setIsLoginMode(mode !== 'register');
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const userId = localStorage.getItem('userId');
+    const userRole = localStorage.getItem('userRole');
+    if (!userId) return;
+
+    const validateSession = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/user'), {
+          headers: { 'user-id': userId }
+        });
+
+        if (res.ok) {
+          navigate.replace(userRole === 'admin' ? '/admin' : '/dashboard');
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to validate auth session:', error);
+      }
+
+      localStorage.removeItem('userId');
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userPicture');
+      localStorage.removeItem('userName');
+    };
+
+    validateSession();
+  }, [navigate]);
 
   // Setelah login berhasil
   const onLoginSuccess = useCallback((data) => {
@@ -37,7 +71,7 @@ export default function Login() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/google-login`, {
+      const res = await fetch(apiUrl('/api/google-login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ credential: response.credential }),
@@ -111,6 +145,14 @@ export default function Login() {
       setError('Harap isi username dan password');
       return;
     }
+    if (!isLoginMode && username.trim().length < 3) {
+      setError('Username minimal 3 karakter');
+      return;
+    }
+    if (!isLoginMode && password.length < 6) {
+      setError('Password minimal 6 karakter');
+      return;
+    }
     
     setError('');
     setSuccess('');
@@ -118,7 +160,7 @@ export default function Login() {
 
     try {
       const endpoint = isLoginMode ? '/api/login' : '/api/register';
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await fetch(apiUrl(endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password })
@@ -134,18 +176,18 @@ export default function Login() {
         setError(data.error || 'Terjadi kesalahan');
       }
     } catch (e) {
-      setError('Gagal terhubung ke server. Pastikan backend berjalan di port 5000.');
+      setError('Gagal terhubung ke server login. Pastikan backend YouClip aktif.');
     } finally {
       setLoading(false);
     }
   };
 
   const switchMode = () => {
-    setIsLoginMode(!isLoginMode);
     setError('');
     setSuccess('');
     setUsername('');
     setPassword('');
+    navigate.replace(isLoginMode ? '/register' : '/login');
   };
 
   return (

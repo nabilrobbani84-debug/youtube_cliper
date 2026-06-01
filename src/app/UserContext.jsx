@@ -1,6 +1,7 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiUrl } from '../lib/api';
 
 const UserContext = createContext();
 
@@ -15,7 +16,7 @@ export function UserProvider({ children }) {
       return;
     }
     try {
-      const res = await fetch('http://localhost:5000/api/user', {
+      const res = await fetch(apiUrl('/api/user'), {
         headers: { 'user-id': userId }
       });
       if (res.ok) {

@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
+const path = require('path');
+const fs = require('fs');
+const { renderYouTubeSubclips } = require('./clipper');
 
 const app = express();
 const PORT = 5000;
@@ -24,13 +27,29 @@ function notifyUser(userId, title, message, type = 'info') {
 // ================================================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 
+const allowedOriginPatterns = [
+    /^http:\/\/localhost:\d+$/,
+    /^http:\/\/127\.0\.0\.1:\d+$/,
+    /^http:\/\/\[::1\]:\d+$/
+];
+
 app.use(cors({
-  origin: ['http://localhost:3001', 'http://localhost:5173', 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = allowedOriginPatterns.some((pattern) => pattern.test(origin));
+    if (allowed) return callback(null, true);
+    return callback(new Error(`Origin tidak diizinkan oleh CORS: ${origin}`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'user-id', 'Authorization'],
   credentials: true
 }));
 app.use(express.json());
+
+// Serve rendered clip files
+const rendersPath = path.join(__dirname, 'public', 'renders');
+if (!fs.existsSync(rendersPath)) fs.mkdirSync(rendersPath, { recursive: true });
+app.use('/renders', express.static(rendersPath));
 
 // ----------------------------------------------------------------
 // HELPER: Verifikasi token Google secara manual (tanpa library)
@@ -62,7 +81,8 @@ async function verifyGoogleToken(credential) {
 // AUTH: Login & Register
 // ----------------------------------------------------------------
 app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
+    const username = req.body?.username?.trim();
+    const password = req.body?.password;
     if (!username || !password) return res.status(400).json({ error: "Username dan password diperlukan" });
     
     db.get("SELECT * FROM users WHERE username = ? AND password = ?", [username, password], (err, user) => {
@@ -81,8 +101,11 @@ app.post('/api/login', (req, res) => {
 });
 
 app.post('/api/register', (req, res) => {
-    const { username, password } = req.body;
+    const username = req.body?.username?.trim();
+    const password = req.body?.password;
     if (!username || !password) return res.status(400).json({ error: "Username dan password diperlukan" });
+    if (username.length < 3) return res.status(400).json({ error: "Username minimal 3 karakter" });
+    if (password.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
     
     db.run(
         "INSERT INTO users (username, password, credits, role) VALUES (?, ?, 15, 'user')",
@@ -266,6 +289,49 @@ function getCaptionPresetProfile(captionPreset) {
     return presets[captionPreset] || presets.viral_neon;
 }
 
+const PUBLIC_RENDER_URLS = [
+    'https://media.w3.org/2010/05/sintel/trailer.mp4',
+    'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+    'https://samplelib.com/lib/preview/mp4/sample-5s.mp4',
+    'https://media.w3.org/2010/05/bunny/trailer.mp4',
+    'https://media.w3.org/2010/05/video/movie_300.mp4'
+];
+
+const GOOGLE_SAMPLE_URL_MAP = {
+    'BigBuckBunny.mp4': PUBLIC_RENDER_URLS[0],
+    'ElephantsDream.mp4': PUBLIC_RENDER_URLS[1],
+    'ForBiggerBlazes.mp4': PUBLIC_RENDER_URLS[2],
+    'ForBiggerEscapes.mp4': PUBLIC_RENDER_URLS[3],
+    'ForBiggerFun.mp4': PUBLIC_RENDER_URLS[4]
+};
+
+const PRIVATE_S3_FALLBACK_MAP = {
+    'sample_clip_1.mp4': PUBLIC_RENDER_URLS[0],
+    'sample_clip_2.mp4': PUBLIC_RENDER_URLS[1],
+    'sample_clip_3.mp4': PUBLIC_RENDER_URLS[2],
+    'movie_300.mp4': PUBLIC_RENDER_URLS[4],
+};
+
+function normalizeRenderUrl(url, index = 0) {
+    if (!url || typeof url !== 'string') return PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+    try {
+        const parsed = new URL(url);
+        const fileName = parsed.pathname.split('/').pop();
+
+        if (parsed.hostname === 'commondatastorage.googleapis.com' && parsed.pathname.includes('/gtv-videos-bucket/sample/')) {
+            return GOOGLE_SAMPLE_URL_MAP[fileName] || PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+        }
+
+        if (parsed.hostname.includes('.s3.') || parsed.hostname.endsWith('s3.amazonaws.com')) {
+            return PRIVATE_S3_FALLBACK_MAP[fileName] || PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+        }
+
+        return url;
+    } catch {
+        return PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+    }
+}
+
 function buildSubtitleTimeline(entries = []) {
     return entries.map((entry, lineIndex) => {
         const text = entry.text || '';
@@ -305,130 +371,99 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
     } = options;
     const delay = 15000 + Math.random() * 15000; // 15-30 detik
     setTimeout(() => {
-        const layoutProfile = getLayoutProfile(layout);
-        const captionProfile = getCaptionPresetProfile(captionPreset);
-        const resolvedBrand = captionPreset === 'custom_brand' && captionBrand
-            ? {
-                name: captionBrand.name || 'Custom Brand',
-                accent: captionBrand.accent || captionProfile.accent,
-                textColor: captionBrand.textColor || captionProfile.textColor,
-                background: captionBrand.background || captionProfile.background
-            }
-            : null;
-        const momentVariants = [
-            {
-                title: "Hook pembuka yang langsung ngunci perhatian",
-                score: "9.7",
-                category: "Hook & Retention",
-                platform: layoutProfile.platform,
-                editorialNote: "Opening dipilih karena 3 detik pertamanya punya tensi tinggi dan aman dipakai sebagai cold open tanpa perlu intro panjang.",
-                subtitles: [
-                    { text: "INI bagian yang bikin penonton langsung berhenti scroll.", emphasis: ["INI", "berhenti", "scroll"] },
-                    { text: "Hook pembuka dipotong super rapat biar langsung kena.", emphasis: ["Hook", "super", "langsung"] },
-                    { text: "Transisi masuk dibuat cepat supaya retensi tetap tinggi.", emphasis: ["cepat", "retensi", "tinggi"] }
-                ]
-            },
-            {
-                title: "Penjelasan inti yang paling enak dipotong jadi short",
-                score: "9.3",
-                category: "Value Delivery",
-                platform: "YouTube Shorts, Reels",
-                editorialNote: "Bagian ini cocok dijadikan klip edukatif karena kalimat utamanya jelas, ritmenya stabil, dan mudah diberi subtitle tebal.",
-                subtitles: [
-                    { text: "Poin pentingnya disampaikan dengan jelas di bagian ini.", emphasis: ["Poin", "jelas"] },
-                    { text: "Tempo bicara stabil, jadi subtitle bisa tampil rapi.", emphasis: ["stabil", "subtitle", "rapi"] },
-                    { text: "Bagian ini cocok untuk format edukasi cepat.", emphasis: ["edukasi", "cepat"] }
-                ]
-            },
-            {
-                title: "Reaksi emosional paling kuat di dalam video",
-                score: "9.5",
-                category: "Emotion Spike",
-                platform: "TikTok, Shorts",
-                editorialNote: "Momen reaksi diprioritaskan karena ekspresi dan jeda dramatisnya terasa natural, sehingga hasil edit terlihat lebih premium.",
-                subtitles: [
-                    { text: "Reaksi ini yang bikin klimaks videonya terasa hidup.", emphasis: ["Reaksi", "klimaks", "hidup"] },
-                    { text: "Ekspresi dan pause-nya bikin momen ini lebih kuat.", emphasis: ["Ekspresi", "pause-nya", "kuat"] },
-                    { text: "Potongan ini cocok untuk penonton yang suka konten emosional.", emphasis: ["konten", "emosional"] }
-                ]
-            },
-            {
-                title: "Punchline paling tajam untuk dorong replay",
-                score: "9.1",
-                category: "Punchline",
-                platform: "TikTok, Reels",
-                editorialNote: "Dipilih karena kalimat akhirnya punya efek replay yang kuat dan tetap jelas walau dipotong vertikal 9:16.",
-                subtitles: [
-                    { text: "Bagian akhirnya punya punchline yang gampang diingat.", emphasis: ["punchline", "gampang", "diingat"] },
-                    { text: "Cut dibuat ketat supaya penutupnya terasa nendang.", emphasis: ["Cut", "ketat", "nendang"] },
-                    { text: "Replay value naik karena ending-nya clean.", emphasis: ["Replay", "ending-nya", "clean"] }
-                ]
-            },
-            {
-                title: "Momen transisi cerita yang paling mulus",
-                score: "8.9",
-                category: "Story Beat",
-                platform: "Shorts, LinkedIn Video",
-                editorialNote: "Segmen ini jadi alternatif yang lebih tenang tapi tetap kuat, cocok untuk short yang ingin terlihat lebih rapi dan editorial.",
-                subtitles: [
-                    { text: "Transisi ceritanya paling halus ada di bagian ini.", emphasis: ["Transisi", "halus"] },
-                    { text: "Potongan ini terasa lebih editorial dan tidak terburu-buru.", emphasis: ["editorial", "tidak", "terburu-buru"] },
-                    { text: "Cocok untuk short yang ingin terlihat profesional.", emphasis: ["short", "profesional"] }
-                ]
-            }
-        ];
-
-        const workingUrls = [
-            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
-            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_753.52-848.80_final.mp4",
-            "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_232.52-264.12_final.mp4"
-        ];
-
-        // Shuffle and pick 3
-        const picked = [...momentVariants].sort(() => 0.5 - Math.random()).slice(0, 3);
-        const hydratedSubClips = picked.map((item, i) => {
-            const subtitleTimeline = autoSubtitle ? buildSubtitleTimeline(item.subtitles) : [];
-            return {
-            id: `sub-${uuidv4()}`,
-            url: workingUrls[i % workingUrls.length],
-            title: item.title,
-            score: item.score,
-            category: item.category,
-            platform: item.platform,
-            editorialNote: item.editorialNote,
-            subtitles: autoSubtitle ? item.subtitles : [],
-            subtitleTimeline,
-            subtitleMode: autoSubtitle ? 'burned-in-pro' : 'clean-no-subs',
-            captionPreset,
-            captionPresetLabel: captionProfile.label,
-            captionVibe: captionProfile.vibe,
-            accentColor: captionProfile.accent,
-            captionBrand: resolvedBrand,
-            layoutLabel: layoutProfile.label,
-            finishing: layoutProfile.finish,
-            hook: `${layoutProfile.hookPrefix}: ${item.title}`,
-            durationLabel: ['00:34', '01:05', '00:42'][i % 3]
-        };
-        });
-
-        const mainTitle = `${picked[0].title} + 2 klip siap upload`;
-        
-        db.run(
-            "UPDATE clips SET status = 'completed', title = ?, sub_clips = ? WHERE id = ?",
-            [mainTitle, JSON.stringify(hydratedSubClips), mainClipId],
-            (err) => {
-                if (err) console.error('Simulate error:', err.message);
-                else {
-                    console.log(`✅ Clip ${mainClipId} completed with 3 sub-clips`);
-                    // Notify User
-                    db.get("SELECT user_id FROM clips WHERE id = ?", [mainClipId], (err, clip) => {
-                        if (clip) {
-                            notifyUser(clip.user_id, "Clip Berhasil!", `Video Anda "${mainTitle.substring(0, 20)}..." sudah selesai diproses.`, 'success');
-                        }
-                    });
+        (async () => {
+            const layoutProfile = getLayoutProfile(layout);
+            const captionProfile = getCaptionPresetProfile(captionPreset);
+            const resolvedBrand = captionPreset === 'custom_brand' && captionBrand
+                ? {
+                    name: captionBrand.name || 'Custom Brand',
+                    accent: captionBrand.accent || captionProfile.accent,
+                    textColor: captionBrand.textColor || captionProfile.textColor,
+                    background: captionBrand.background || captionProfile.background
                 }
+                : null;
+
+            // Try to render actual subclips from YouTube if possible
+            let rendered = [];
+            try {
+                if (videoId) {
+                    rendered = await renderYouTubeSubclips(mainClipId, videoId, { count: 5 });
+                }
+            } catch (e) {
+                console.error('[simulateClipProcessing] render error', e.message);
+                rendered = [];
             }
-        );
+
+            // Fallback to sample assets if render failed or returned empty
+            const clipUrls = (rendered && rendered.length > 0)
+                ? rendered.map(r => `http://localhost:${PORT}${r.url}`)
+                : PUBLIC_RENDER_URLS.slice(0, 5);
+
+            const momentVariants = [
+                { title: "Hook pembuka yang langsung ngunci perhatian", score: "9.7", category: "Hook & Retention", platform: layoutProfile.platform, editorialNote: "Opening dipilih karena 3 detik pertamanya punya tensi tinggi dan aman dipakai sebagai cold open tanpa perlu intro panjang.", subtitles: [{ text: "INI bagian yang bikin penonton langsung berhenti scroll.", emphasis: ["INI", "berhenti", "scroll"] }] },
+                { title: "Penjelasan inti yang paling enak dipotong jadi short", score: "9.3", category: "Value Delivery", platform: "YouTube Shorts, Reels", editorialNote: "Bagian ini cocok dijadikan klip edukatif karena kalimat utamanya jelas, ritmenya stabil, dan mudah diberi subtitle tebal.", subtitles: [{ text: "Poin pentingnya disampaikan dengan jelas di bagian ini.", emphasis: ["Poin", "jelas"] }] },
+                { title: "Reaksi emosional paling kuat di dalam video", score: "9.5", category: "Emotion Spike", platform: "TikTok, Shorts", editorialNote: "Momen reaksi diprioritaskan karena ekspresi dan jeda dramatisnya terasa natural, sehingga hasil edit terlihat lebih premium.", subtitles: [{ text: "Reaksi ini yang bikin klimaks videonya terasa hidup.", emphasis: ["Reaksi", "klimaks", "hidup"] }] },
+                { title: "Punchline paling tajam untuk dorong replay", score: "9.1", category: "Punchline", platform: "TikTok, Reels", editorialNote: "Dipilih karena kalimat akhirnya punya efek replay yang kuat dan tetap jelas walau dipotong vertikal 9:16.", subtitles: [{ text: "Bagian akhirnya punya punchline yang gampang diingat.", emphasis: ["punchline", "gampang", "diingat"] }] },
+                { title: "Momen transisi cerita yang paling mulus", score: "8.9", category: "Story Beat", platform: "Shorts, LinkedIn Video", editorialNote: "Segmen ini jadi alternatif yang lebih tenang tapi tetap kuat, cocok untuk short yang ingin terlihat lebih rapi dan editorial.", subtitles: [{ text: "Transisi ceritanya paling halus ada di bagian ini.", emphasis: ["Transisi", "halus"] }] }
+            ];
+
+            const durationPresets = ['00:34', '01:05', '00:42', '00:51', '00:38'];
+            const exportProfiles = [
+                'Cinematic punch-in + color grade',
+                'Retention cut + rhythm captions',
+                'Clean educational framing',
+                'Emotion-led zoom pacing',
+                'Soft CTA finishing pass'
+            ];
+
+            // Use the clipUrls to create hydrated sub-clips
+            const picked = [...momentVariants].slice(0, 5);
+            const hydratedSubClips = picked.map((item, i) => {
+                const subtitleTimeline = autoSubtitle ? buildSubtitleTimeline(item.subtitles) : [];
+                return {
+                    id: `sub-${uuidv4()}`,
+                    url: clipUrls[i] || PUBLIC_RENDER_URLS[i % PUBLIC_RENDER_URLS.length],
+                    title: item.title,
+                    score: item.score,
+                    category: item.category,
+                    platform: item.platform,
+                    editorialNote: item.editorialNote,
+                    subtitles: autoSubtitle ? item.subtitles : [],
+                    subtitleTimeline,
+                    subtitleMode: autoSubtitle ? 'burned-in-pro' : 'clean-no-subs',
+                    captionPreset,
+                    captionPresetLabel: captionProfile.label,
+                    captionVibe: captionProfile.vibe,
+                    accentColor: captionProfile.accent,
+                    captionBrand: resolvedBrand,
+                    layoutLabel: layoutProfile.label,
+                    finishing: `${layoutProfile.finish} • ${exportProfiles[i % exportProfiles.length]}`,
+                    hook: `${layoutProfile.hookPrefix}: ${item.title}`,
+                    durationLabel: durationPresets[i % durationPresets.length],
+                    exportProfile: exportProfiles[i % exportProfiles.length],
+                    editorialPriority: i === 0 ? 'Hero Clip' : i < 3 ? 'Primary Cut' : 'Support Cut'
+                };
+            });
+
+            const mainTitle = `${picked[0].title} • 5 klip profesional siap upload`;
+
+            db.run(
+                "UPDATE clips SET status = 'completed', title = ?, sub_clips = ? WHERE id = ?",
+                [mainTitle, JSON.stringify(hydratedSubClips), mainClipId],
+                (err) => {
+                    if (err) console.error('Simulate error:', err.message);
+                    else {
+                        console.log(`✅ Clip ${mainClipId} completed with ${hydratedSubClips.length} sub-clips`);
+                        // Notify User
+                        db.get("SELECT user_id FROM clips WHERE id = ?", [mainClipId], (err, clip) => {
+                            if (clip) {
+                                notifyUser(clip.user_id, "Clip Berhasil!", `Video Anda "${mainTitle.substring(0, 20)}..." sudah selesai diproses.`, 'success');
+                            }
+                        });
+                    }
+                }
+            );
+        })();
     }, delay);
 }
 
@@ -440,7 +475,12 @@ app.get('/api/clips', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         const parsedRows = rows.map(row => ({
             ...row,
-            sub_clips: row.sub_clips ? JSON.parse(row.sub_clips) : [],
+            sub_clips: row.sub_clips
+                ? JSON.parse(row.sub_clips).map((clipItem, index) => ({
+                    ...clipItem,
+                    url: normalizeRenderUrl(clipItem.url, index)
+                }))
+                : [],
             caption_brand: row.caption_brand ? JSON.parse(row.caption_brand) : null
         }));
         res.json(parsedRows);
@@ -747,27 +787,41 @@ app.get('/api/download', async (req, res) => {
     if (!url) return res.status(400).json({ error: 'URL diperlukan' });
 
     try {
-        const decodedUrl = decodeURIComponent(url);
-        const safeFilename = (filename || 'youclip-hasil.mp4').replace(/[^a-zA-Z0-9._\-\s]/g, '_');
+        const targetUrl = normalizeRenderUrl(typeof url === 'string' ? url : '');
+        const parsedUrl = new URL(targetUrl);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            return res.status(400).json({ error: 'Protocol URL tidak didukung' });
+        }
 
-        const response = await fetch(decodedUrl);
-        if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
+        const safeFilename = (filename || 'youclip-hasil.mp4')
+            .replace(/[^a-zA-Z0-9._\-\s]/g, '_')
+            .replace(/\s+/g, '-');
+        const encodedFilename = encodeURIComponent(safeFilename);
 
-        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        const useFallback = targetUrl !== url && (new URL(url)).hostname.includes('.s3.');
+        const response = await fetch(parsedUrl.toString(), {
+            redirect: 'follow'
+        });
+        if (!response.ok) {
+            const upstreamBody = await response.text().catch(() => 'Tidak ada detail tambahan');
+            return res.status(502).type('text/plain').send(`Gagal mengunduh dari sumber: ${response.status} ${response.statusText}\n${upstreamBody}`);
+        }
+
+        if (useFallback) {
+            res.setHeader('X-YouClip-Download-Message', 'File asli S3 tidak dapat diakses, mengunduh fallback publik sebagai pengganti.');
+        }
+
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`);
         res.setHeader('Content-Type', response.headers.get('content-type') || 'video/mp4');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        const contentLength = response.headers.get('content-length');
-        if (contentLength) res.setHeader('Content-Length', contentLength);
-
-        // Stream response body ke client
-        const { Readable } = require('stream');
-        Readable.fromWeb(response.body).pipe(res);
+        res.setHeader('Cache-Control', 'no-store');
+        const arrayBuffer = await response.arrayBuffer();
+        const fileBuffer = Buffer.from(arrayBuffer);
+        res.setHeader('Content-Length', fileBuffer.length);
+        res.end(fileBuffer);
     } catch (err) {
         console.error('[Download Proxy Error]', err.message);
-        // Fallback: redirect langsung
-        try { res.redirect(decodeURIComponent(req.query.url)); } catch(e) {
-            res.status(500).json({ error: 'Gagal mengunduh: ' + err.message });
-        }
+        res.status(500).type('text/plain').send(`Gagal mengunduh file: ${err.message}`);
     }
 });
 

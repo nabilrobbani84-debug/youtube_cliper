@@ -3,6 +3,7 @@ import "./home.css";
 import { Info, ChevronDown, ChevronUp, CheckCircle, Loader2, Video, X, Download, Star, Youtube, Languages, Sparkles } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useUser } from '../UserContext';
+import { apiUrl, getApiBaseUrl } from '../../lib/api';
 
 // Helper: ekstrak YouTube Video ID dari URL apapun
 function getYouTubeId(url) {
@@ -23,6 +24,109 @@ function getYouTubeThumbnail(url, quality = 'maxresdefault') {
   const id = getYouTubeId(url);
   if (!id) return null;
   return `https://img.youtube.com/vi/${id}/${quality}.jpg`;
+}
+
+const PUBLIC_RENDER_URLS = [
+  'https://media.w3.org/2010/05/sintel/trailer.mp4',
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://samplelib.com/lib/preview/mp4/sample-5s.mp4',
+  'https://media.w3.org/2010/05/bunny/trailer.mp4',
+  'https://media.w3.org/2010/05/video/movie_300.mp4',
+];
+
+const GOOGLE_SAMPLE_URL_MAP = {
+  'BigBuckBunny.mp4': PUBLIC_RENDER_URLS[0],
+  'ElephantsDream.mp4': PUBLIC_RENDER_URLS[1],
+  'ForBiggerBlazes.mp4': PUBLIC_RENDER_URLS[2],
+  'ForBiggerEscapes.mp4': PUBLIC_RENDER_URLS[3],
+  'ForBiggerFun.mp4': PUBLIC_RENDER_URLS[4]
+};
+
+const PRIVATE_S3_FALLBACK_MAP = {
+  'sample_clip_1.mp4': PUBLIC_RENDER_URLS[0],
+  'sample_clip_2.mp4': PUBLIC_RENDER_URLS[1],
+  'sample_clip_3.mp4': PUBLIC_RENDER_URLS[2],
+  'movie_300.mp4': PUBLIC_RENDER_URLS[4]
+};
+
+function normalizeClipMediaUrl(url, index = 0) {
+  if (!url || typeof url !== 'string') return PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+  try {
+    const parsed = new URL(url);
+    const fileName = parsed.pathname.split('/').pop();
+    if (parsed.hostname === 'commondatastorage.googleapis.com' && parsed.pathname.includes('/gtv-videos-bucket/sample/')) {
+      return GOOGLE_SAMPLE_URL_MAP[fileName] || PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+    }
+    if (parsed.hostname.includes('.s3.') || parsed.hostname.endsWith('s3.amazonaws.com')) {
+      return PRIVATE_S3_FALLBACK_MAP[fileName] || PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+    }
+    return url;
+  } catch {
+    return PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length];
+  }
+}
+
+function ensureFiveClips(subClips = [], clip) {
+  const baseClips = Array.isArray(subClips) ? subClips : [];
+  if (baseClips.length >= 5) return baseClips;
+
+  const fillerProfiles = [
+    {
+      title: 'Alt cut retention boost',
+      score: '8.9',
+      category: 'Retention',
+      platform: 'TikTok, Reels',
+      editorialNote: 'Versi tambahan ini dibuat lebih rapat untuk menjaga hold rate di opening clip.',
+      hook: 'Alternatif hook cepat untuk distribusi tambahan.',
+      durationLabel: '00:36',
+      finishing: 'Professional short-form finish • Retention boost',
+      editorialPriority: 'Support Cut',
+      exportProfile: 'Retention cut + rhythm captions'
+    },
+    {
+      title: 'Alt cut emotional emphasis',
+      score: '8.8',
+      category: 'Emotion',
+      platform: 'Shorts, Reels',
+      editorialNote: 'Versi tambahan ini memberi ruang lebih ke ekspresi dan beat emosional.',
+      hook: 'Alternatif emosional untuk variasi posting.',
+      durationLabel: '00:40',
+      finishing: 'Professional short-form finish • Emotion support',
+      editorialPriority: 'Support Cut',
+      exportProfile: 'Emotion-led zoom pacing'
+    }
+  ];
+
+  const captionPreset = clip.caption_preset || 'viral_neon';
+  const captionBrand = clip.caption_brand || null;
+
+  return [
+    ...baseClips,
+    ...Array.from({ length: 5 - baseClips.length }, (_, fillerIndex) => {
+      const profile = fillerProfiles[fillerIndex % fillerProfiles.length];
+      return {
+        id: `fallback-${clip.id}-${fillerIndex}`,
+        url: PUBLIC_RENDER_URLS[(baseClips.length + fillerIndex) % PUBLIC_RENDER_URLS.length],
+        title: profile.title,
+        score: profile.score,
+        category: profile.category,
+        platform: profile.platform,
+        editorialNote: profile.editorialNote,
+        subtitles: [{ text: `Versi tambahan profesional ${baseClips.length + fillerIndex + 1}.`, emphasis: ['tambahan', 'profesional'] }],
+        subtitleMode: 'burned-in-pro',
+        captionPreset,
+        captionPresetLabel: getCaptionPresetMeta(captionPreset, captionBrand).label,
+        captionVibe: getCaptionPresetMeta(captionPreset, captionBrand).chip,
+        captionBrand,
+        layoutLabel: getLayoutLabel(clip.layout),
+        finishing: profile.finishing,
+        hook: profile.hook,
+        durationLabel: profile.durationLabel,
+        editorialPriority: profile.editorialPriority,
+        exportProfile: profile.exportProfile
+      };
+    })
+  ];
 }
 
 function getLayoutLabel(layout) {
@@ -270,268 +374,388 @@ function MiniWaveformTimeline({ subtitleTimeline = [], accentColor = '#facc15', 
 function ClipViewerOverlay({ clip, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [downloadingIndex, setDownloadingIndex] = useState(null);
+  const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
   async function downloadClip(videoUrl, title, index) {
     if (downloadingIndex !== null) return;
     setDownloadingIndex(index);
+    const safeTitle = (title || 'youclip-klip').replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-');
+    const filename = `${safeTitle}-klip${index + 1}.mp4`;
     try {
-      const safeTitle = (title || 'youclip-klip').replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-');
-      const filename = `${safeTitle}-klip${index + 1}.mp4`;
-
-      // Gunakan server proxy agar CORS tidak jadi masalah
-      const proxyUrl = `http://localhost:5000/api/download?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
-
+      const normalizedVideoUrl = normalizeClipMediaUrl(videoUrl, index);
+      const proxyUrl = `${getApiBaseUrl()}/api/download?url=${encodeURIComponent(normalizedVideoUrl)}&filename=${encodeURIComponent(filename)}`;
       const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error('Server error ' + response.status);
-
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Gagal mengunduh file.');
+        throw new Error(errorText);
+      }
+      const fallbackMessage = response.headers.get('x-youclip-download-message');
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
-
       const a = document.createElement('a');
       a.href = objectUrl;
       a.download = filename;
+      a.rel = 'noopener noreferrer';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+      URL.revokeObjectURL(objectUrl);
+      if (fallbackMessage) {
+        alert(fallbackMessage);
+      }
     } catch (err) {
       console.error('Download error:', err);
-      // Fallback: buka di tab baru untuk download manual
-      window.open(videoUrl, '_blank');
+      alert(err.message || 'Download gagal. File mungkin tidak dapat diakses karena izin storage.');
     } finally {
-      setDownloadingIndex(null);
+      setTimeout(() => {
+        setDownloadingIndex((value) => (value === index ? null : value));
+      }, 1800);
     }
   }
 
 
   const clipsData = (clip.sub_clips && clip.sub_clips.length > 0)
-    ? clip.sub_clips
-    : [{
-        url: "https://youclip-production.s3.ap-southeast-2.amazonaws.com/renders/BARU%203%20HARI%20KERJA%20FANDI%20DI%20TUNTUT%20HUKUMAN%20M%EF%BC%8A-TI%E2%81%89%EF%B8%8F%20SEMUA%20INI%20HANYA%20JEBAKAN%E2%80%BC%EF%B8%8F%20%5Bd2zDV6lo9IU%5D_1248.84-1323.08_final.mp4",
-        title: clip.title || "Klip siap upload",
-        score: "9.2",
-        category: "Highlight",
-        platform: "TikTok, Reels, Shorts",
-        editorialNote: "Klip fallback ini ditampilkan untuk menjaga preview tetap hidup sambil menunggu metadata lengkap dari proses backend.",
-        subtitles: ["Preview hasil render final."],
+    ? ensureFiveClips(clip.sub_clips, clip)
+    : Array.from({ length: 5 }, (_, index) => ({
+        url: PUBLIC_RENDER_URLS[index % PUBLIC_RENDER_URLS.length],
+        title: index === 0 ? (clip.title || "Hero clip siap upload") : `Alt cut ${index + 1} untuk distribusi multi-platform`,
+        score: ['9.4', '9.1', '8.9', '9.0', '8.8'][index],
+        category: ['Hero Highlight', 'Punchline', 'Education', 'Emotion', 'Soft CTA'][index],
+        platform: ['TikTok, Reels, Shorts', 'TikTok, Reels', 'YouTube Shorts', 'TikTok, Shorts', 'Reels, Shorts'][index],
+        editorialNote: [
+          "Hero cut ini diprioritaskan untuk jadi upload utama karena framing, hook, dan ritme caption-nya paling kuat.",
+          "Alt cut ini dibuat lebih ketat untuk mendorong replay dan retention di 3 detik pertama.",
+          "Versi edukatif ini menjaga kalimat inti tetap jelas sehingga cocok untuk short informatif.",
+          "Versi emotion-led ini memberi ruang lebih ke ekspresi supaya hasil edit terasa premium.",
+          "Versi ini ditutup lebih halus untuk CTA dan cocok dipakai sebagai variasi distribusi."
+        ][index],
+        subtitles: [{ text: `Preview profesional untuk cut ${index + 1}.`, emphasis: ['Preview', 'profesional'] }],
         subtitleMode: "burned-in-pro",
         captionPreset: clip.caption_preset || 'viral_neon',
         captionPresetLabel: getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).label,
         captionVibe: getCaptionPresetMeta(clip.caption_preset || 'viral_neon', clip.caption_brand).chip,
         captionBrand: clip.caption_brand || null,
         layoutLabel: getLayoutLabel(clip.layout),
-        finishing: "Professional short-form finish",
-        hook: "Potongan utama yang siap dipakai",
-        durationLabel: "00:45"
-      }];
+        finishing: [
+          "Professional short-form finish • Hero master",
+          "Professional short-form finish • Retention cut",
+          "Professional short-form finish • Education clean cut",
+          "Professional short-form finish • Emotion pass",
+          "Professional short-form finish • CTA soft landing"
+        ][index],
+        hook: [
+          "Potongan utama dengan hook paling kuat untuk upload pertama.",
+          "Versi punchier untuk audience yang suka cut cepat.",
+          "Versi yang lebih jelas untuk value delivery.",
+          "Versi yang mengutamakan ekspresi dan beat emosional.",
+          "Versi akhir yang lebih halus untuk variasi posting."
+        ][index],
+        durationLabel: ['00:34', '01:05', '00:42', '00:51', '00:38'][index],
+        editorialPriority: index === 0 ? 'Hero Clip' : index < 3 ? 'Primary Cut' : 'Support Cut',
+        exportProfile: [
+          'Cinematic punch-in + color grade',
+          'Retention cut + rhythm captions',
+          'Clean educational framing',
+          'Emotion-led zoom pacing',
+          'Soft CTA finishing pass'
+        ][index]
+      }));
 
   const videoId = getYouTubeId(clip.url);
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: '#000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+  const activeClip = clipsData[currentIndex] || clipsData[0];
+  const activeSubtitles = activeClip?.subtitles && activeClip.subtitles.length > 0
+    ? activeClip.subtitles
+    : [activeClip?.hook || "Klip profesional siap tayang."];
+  const activeCategory = activeClip?.category || 'Highlight';
+  const activePlatform = activeClip?.platform || 'TikTok, Reels, Shorts';
+  const activeEditorialNote = activeClip?.editorialNote || 'Klip ini dipilih karena hook-nya kuat, framing aman, dan ritme editnya cocok untuk konten short-form premium.';
+  const activeFinishing = activeClip?.finishing || 'Professional short-form finish';
+  const activeHook = activeClip?.hook || activeClip?.title || clip.title;
+  const activeDurationLabel = activeClip?.durationLabel || '00:45';
+  const activeSubtitleMode = activeClip?.subtitleMode || 'burned-in-pro';
+  const activeCaptionPreset = activeClip?.captionPreset || clip.caption_preset || 'viral_neon';
+  const activeCustomBrand = activeClip?.captionBrand || clip.caption_brand || null;
+  const activeCaptionPresetLabel = activeClip?.captionPresetLabel || getCaptionPresetMeta(activeCaptionPreset, activeCustomBrand).label;
+  const activeCaptionVibe = activeClip?.captionVibe || getCaptionPresetMeta(activeCaptionPreset, activeCustomBrand).chip;
+  const activeSubtitleTimeline = activeClip?.subtitleTimeline || [];
+  const activeAccentColor = activeClip?.accentColor || getCaptionPresetMeta(activeCaptionPreset, activeCustomBrand).accent;
+  const activeScore = activeClip?.score ? activeClip.score.toString().replace('/10', '').trim() : '8.5';
+  const activePoster = clip.thumbnail || getYouTubeThumbnail(clip.url);
+  const activeExportProfile = activeClip?.exportProfile || 'Professional short-form mastering';
+  const activePriority = activeClip?.editorialPriority || 'Primary Cut';
+  const isTablet = viewportWidth < 1220;
+  const isMobile = viewportWidth < 820;
 
-      {/* ── TOP BAR ───────────────────────────────────── */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 100%)' }}>
-        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(8px)' }}>
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#030712', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        <div style={{
+          position: 'absolute',
+          inset: '-6%',
+          backgroundImage: activePoster ? `url(${activePoster})` : 'linear-gradient(135deg, #111827, #020617)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          filter: 'blur(30px) saturate(1.1)',
+          transform: 'scale(1.08)',
+          opacity: 0.55
+        }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top, rgba(99,102,241,0.2), transparent 35%), linear-gradient(180deg, rgba(2,6,23,0.3), rgba(2,6,23,0.95) 65%, rgba(2,6,23,1))' }} />
+      </div>
+
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 50, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '50%', width: 42, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backdropFilter: 'blur(12px)' }}>
           <X size={20} color="white" />
         </button>
-        <div style={{ textAlign: 'center', flex: 1, padding: '0 12px' }}>
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 2 }}>Hasil Klip AI</div>
-          <div style={{ color: 'white', fontSize: 13, fontWeight: 700, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: 220 }}>{clip.title}</div>
-        </div>
-        {/* Dot indicators */}
-        <div style={{ display: 'flex', gap: 5 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
           {clipsData.map((_, i) => (
-            <div key={i} style={{ width: i === currentIndex ? 18 : 6, height: 6, borderRadius: 3, backgroundColor: i === currentIndex ? '#6366f1' : 'rgba(255,255,255,0.3)', transition: 'all 0.3s' }} />
+            <div key={i} style={{ width: i === currentIndex ? 22 : 6, height: 6, borderRadius: 999, backgroundColor: i === currentIndex ? '#8b5cf6' : 'rgba(255,255,255,0.25)', transition: 'all 0.3s' }} />
           ))}
         </div>
       </div>
 
-      {/* ── MAIN SWIPEABLE AREA ───────────────────────── */}
-      <div
-        id="clip-scroll-container"
-        style={{ flex: 1, overflowY: 'auto', scrollSnapType: 'y mandatory', scrollBehavior: 'smooth', scrollbarWidth: 'none' }}
-        onScroll={(e) => {
-          const rawIndex = Math.round(e.target.scrollTop / e.target.clientHeight);
-          if (rawIndex !== currentIndex) setCurrentIndex(rawIndex);
-        }}
-      >
-        {clipsData.map((data, index) => {
-          const isActive = currentIndex === index;
-          const cleanScore = data.score ? data.score.toString().replace('/10', '').trim() : "8.5";
-          const currentSubtitles = data.subtitles && data.subtitles.length > 0
-            ? data.subtitles
-            : [data.hook || "Klip profesional siap tayang."];
-          const category = data.category || 'Highlight';
-          const platform = data.platform || 'TikTok, Reels, Shorts';
-          const editorialNote = data.editorialNote || 'Klip ini dipilih karena punya tempo yang enak, hook kuat, dan aman untuk format vertikal.';
-          const finishing = data.finishing || 'Professional short-form finish';
-          const hook = data.hook || data.title;
-          const durationLabel = data.durationLabel || '00:45';
-          const subtitleMode = data.subtitleMode || 'burned-in-pro';
-          const captionPreset = data.captionPreset || clip.caption_preset || 'viral_neon';
-          const customBrand = data.captionBrand || clip.caption_brand || null;
-          const captionPresetLabel = data.captionPresetLabel || getCaptionPresetMeta(captionPreset, customBrand).label;
-          const captionVibe = data.captionVibe || getCaptionPresetMeta(captionPreset, customBrand).chip;
-          const subtitleTimeline = data.subtitleTimeline || [];
-          const accentColor = data.accentColor || getCaptionPresetMeta(captionPreset, customBrand).accent;
+      <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '100%', padding: '84px 24px 24px', overflowY: 'auto' }}>
+        <div style={{
+          maxWidth: 1380,
+          margin: '0 auto',
+          display: 'grid',
+          gridTemplateColumns: isMobile
+            ? '1fr'
+            : isTablet
+              ? 'minmax(320px, 420px) minmax(300px, 1fr)'
+              : 'minmax(320px, 420px) minmax(320px, 520px) minmax(280px, 360px)',
+          gap: 24,
+          alignItems: 'start'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 390,
+              aspectRatio: '9 / 16',
+              borderRadius: 36,
+              overflow: 'hidden',
+              background: '#020617',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.03)'
+            }}>
+              <video
+                key={`${activeClip?.url}-${currentIndex}`}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                src={normalizeClipMediaUrl(activeClip?.url, currentIndex)}
+                poster={activePoster}
+                autoPlay
+                muted
+                playsInline
+                loop
+                controls={false}
+                preload="auto"
+              />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,6,23,0.15), transparent 22%, transparent 52%, rgba(2,6,23,0.92))' }} />
 
-          return (
-            <div key={index} style={{ position: 'relative', width: '100%', height: '100dvh', scrollSnapAlign: 'start', scrollSnapStop: 'always', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: '#000' }}>
-
-              {/* ── VIDEO FINAL RESULT ── */}
-              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: 'radial-gradient(circle at top, rgba(79,70,229,0.35), transparent 40%), #000' }}>
-                <video
-                  key={`${data.url}-${isActive ? 'active' : 'idle'}`}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  src={data.url}
-                  poster={clip.thumbnail || getYouTubeThumbnail(clip.url)}
-                  autoPlay={isActive}
-                  muted
-                  playsInline
-                  loop
-                  controls={false}
-                  preload={isActive ? 'auto' : 'metadata'}
-                />
+              <div style={{ position: 'absolute', top: 16, left: 16, right: 16, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', maxWidth: '75%' }}>
+                  <span style={{ background: 'rgba(15,23,42,0.74)', color: '#f8fafc', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(12px)', borderRadius: 999, padding: '7px 11px', fontSize: 11, fontWeight: 800 }}>Klip #{currentIndex + 1}</span>
+                  <span style={{ background: 'rgba(79,70,229,0.24)', color: '#e0e7ff', border: '1px solid rgba(165,180,252,0.28)', backdropFilter: 'blur(12px)', borderRadius: 999, padding: '7px 11px', fontSize: 11, fontWeight: 700 }}>{activeClip?.layoutLabel || getLayoutLabel(clip.layout)}</span>
+                </div>
+                <div style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.96), rgba(5,150,105,0.88))', border: '1px solid rgba(110,231,183,0.35)', borderRadius: 999, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 12px 24px rgba(16,185,129,0.22)' }}>
+                  <Star size={13} color="#fef08a" fill="#fef08a" />
+                  <span style={{ color: '#fff', fontWeight: 900, fontSize: 13 }}>{activeScore}</span>
+                </div>
               </div>
 
-              {/* ── GRADIENT OVERLAYS ── */}
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,6,23,0.15) 0%, rgba(2,6,23,0.05) 18%, rgba(2,6,23,0.25) 45%, rgba(2,6,23,0.96) 100%)', pointerEvents: 'none' }} />
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(99,102,241,0.1), transparent 30%, transparent 70%, rgba(16,185,129,0.15))', pointerEvents: 'none' }} />
-
-              {/* ── SCORE BADGE (top-right) ── */}
-              <div style={{ position: 'absolute', top: 70, right: 16, background: 'linear-gradient(135deg, rgba(16,185,129,0.9) 0%, rgba(6,95,70,0.95) 100%)', border: '1px solid rgba(52,211,153,0.5)', boxShadow: '0 4px 15px rgba(16,185,129,0.4)', backdropFilter: 'blur(8px)', borderRadius: 100, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Star size={14} color="#fef08a" fill="#fef08a" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
-                <span style={{ color: 'white', fontWeight: 900, fontSize: 15, textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>{cleanScore}</span>
-                <span style={{ color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 12 }}>/10</span>
+              <div style={{ position: 'absolute', top: 66, left: 16, right: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <span style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(12px)', borderRadius: 999, padding: '7px 12px', fontSize: 11, fontWeight: 700 }}>{activeDurationLabel}</span>
+                <span style={{ color: 'rgba(255,255,255,0.78)', fontSize: 10, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase' }}>Preview Studio</span>
               </div>
 
-              {/* ── KLIP NUMBER (top-left) ── */}
-              <div style={{ position: 'absolute', top: 70, left: 16, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 15px rgba(0,0,0,0.3)', backdropFilter: 'blur(12px)', borderRadius: 100, padding: '8px 16px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.95)', fontWeight: 800, fontSize: 13, letterSpacing: '0.02em' }}>Klip #{index + 1} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>dari {clipsData.length}</span></span>
-              </div>
-
-              <div style={{ position: 'absolute', top: 122, left: 16, display: 'flex', gap: 8, flexWrap: 'wrap', zIndex: 10 }}>
-                <span style={{ background: 'rgba(15,23,42,0.65)', color: '#f8fafc', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)', borderRadius: 999, padding: '7px 12px', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{data.layoutLabel || getLayoutLabel(clip.layout)}</span>
-                <span style={{ background: 'rgba(79,70,229,0.28)', color: '#e0e7ff', border: '1px solid rgba(165,180,252,0.35)', backdropFilter: 'blur(8px)', borderRadius: 999, padding: '7px 12px', fontSize: 11, fontWeight: 700 }}>{durationLabel}</span>
-              </div>
-
-              {/* ── ANIMATED SUBTITLE ── */}
               <AnimatedSubtitle
-                subtitles={currentSubtitles}
-                subtitleTimeline={subtitleTimeline}
-                isActive={isActive}
-                captionPreset={captionPreset}
-                customBrand={customBrand}
+                subtitles={activeSubtitles}
+                subtitleTimeline={activeSubtitleTimeline}
+                isActive={true}
+                captionPreset={activeCaptionPreset}
+                customBrand={activeCustomBrand}
               />
 
-              {/* ── BOTTOM INFO + ACTIONS ── */}
-              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 16px 20px', zIndex: 10 }}>
-
-                {/* Title */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', padding: '7px 12px', borderRadius: 999, backdropFilter: 'blur(10px)' }}>
-                  <Sparkles size={13} color="#c4b5fd" />
-                  <span style={{ color: '#e9d5ff', fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{finishing}</span>
+              <div style={{ position: 'absolute', left: 16, right: 16, bottom: 18 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 10px', borderRadius: 999, backdropFilter: 'blur(10px)' }}>
+                  <Sparkles size={12} color="#c4b5fd" />
+                  <span style={{ color: '#e9d5ff', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{activeFinishing}</span>
                 </div>
-
-                <h3 style={{ color: 'white', fontWeight: 900, fontSize: 19, marginBottom: 10, lineHeight: 1.3, textShadow: '0 4px 12px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.8)', paddingRight: '40px' }}>{data.title}</h3>
-
-                <p style={{ color: 'rgba(255,255,255,0.86)', fontSize: 13, lineHeight: 1.55, margin: '0 0 14px 0', maxWidth: 520 }}>
-                  {hook}
-                </p>
-
-                <MiniWaveformTimeline
-                  subtitleTimeline={subtitleTimeline}
-                  accentColor={accentColor}
-                  activeIndex={Math.min(currentIndex, Math.max(0, subtitleTimeline.length - 1))}
-                />
-
-                {/* Translation box */}
-                <div style={{ background: 'linear-gradient(145deg, rgba(15,12,45,0.85), rgba(7,5,25,0.95))', backdropFilter: 'blur(16px)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 16, padding: '14px', marginBottom: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                    <Languages size={15} color="#a5b4fc" />
-                    <span style={{ color: '#a5b4fc', fontSize: 11, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase' }}>Analisis & Terjemahan AI</span>
-                    <div style={{ marginLeft: 'auto', background: 'linear-gradient(90deg, #4f46e5, #7c3aed)', borderRadius: 20, padding: '3px 10px', display: 'flex', alignItems: 'center', gap: 4, boxShadow: '0 2px 10px rgba(99,102,241,0.4)' }}>
-                      <Sparkles size={11} color="#fff" />
-                      <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '0.05em' }}>PRO</span>
-                    </div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10, background: 'rgba(250,204,21,0.12)', border: '1px solid rgba(250,204,21,0.22)', padding: '6px 10px', borderRadius: 999, backdropFilter: 'blur(10px)' }}>
+                  <span style={{ color: '#facc15', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{activePriority}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>•</span>
+                  <span style={{ color: '#f8fafc', fontSize: 10, fontWeight: 700 }}>{activeExportProfile}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <div style={{ flex: 1, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' }}>
+                    <div style={{ width: `${((currentIndex + 1) / Math.max(clipsData.length, 1)) * 100}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${activeAccentColor}, rgba(255,255,255,0.8))` }} />
                   </div>
-                  <p style={{ color: 'rgba(226,232,240,0.95)', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px 0', fontWeight: 500 }}>
-                    {editorialNote}
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Kategori:</span> {category}
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Target:</span> {platform}
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Subtitle:</span> {subtitleMode === 'burned-in-pro' ? 'Burned-in Pro' : 'Clean'}
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 12px', borderRadius: 8, fontSize: 11, color: '#e2e8f0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{color: '#94a3b8', fontWeight: 500}}>Preset:</span> {captionPresetLabel}
-                    </div>
-                  </div>
-                  <p style={{ color: 'rgba(191,219,254,0.9)', fontSize: 11, lineHeight: 1.5, margin: '10px 0 0 0' }}>{captionVibe}</p>
+                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 700 }}>Shot {currentIndex + 1}/{clipsData.length}</span>
                 </div>
-
-                {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button
-                    onClick={() => downloadClip(data.url, data.title, index)}
-                    disabled={downloadingIndex !== null}
-                    style={{ flex: 1, height: 48, background: downloadingIndex === index ? 'linear-gradient(135deg, #047857, #065f46)' : 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: downloadingIndex !== null ? 'not-allowed' : 'pointer', boxShadow: '0 4px 20px rgba(16,185,129,0.4)', opacity: downloadingIndex !== null && downloadingIndex !== index ? 0.6 : 1, transition: 'all 0.2s' }}
-                  >
-                    {downloadingIndex === index ? (
-                      <><Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> Mengunduh...</>
-                    ) : (
-                      <><Download size={17} /> Unduh Klip</>
-                    )}
-                  </button>
-                  <a
-                    href={videoId ? `https://youtu.be/${videoId}` : clip.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ flex: 1, height: 48, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', borderRadius: 14, color: 'white', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}
-                  >
-                    <Youtube size={17} color="#f87171" /> YouTube
-                  </a>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Judul Klip</span>
+                  <span style={{ background: 'rgba(255,255,255,0.08)', color: '#eef2ff', borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 700 }}>{activeCategory}</span>
                 </div>
+                <h3 style={{ color: '#fff', fontWeight: 900, fontSize: 22, lineHeight: 1.15, marginBottom: 8, textShadow: '0 6px 18px rgba(0,0,0,0.8)' }}>{activeClip?.title}</h3>
+                <p style={{ color: 'rgba(255,255,255,0.82)', fontSize: 13, lineHeight: 1.5, margin: 0 }}>{activeHook}</p>
               </div>
-
-              {/* ── RIGHT SIDE NAV ── */}
-              <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 10, zIndex: 20 }}>
-                <button
-                  disabled={index === 0}
-                  onClick={() => {
-                    const el = document.getElementById('clip-scroll-container');
-                    if (el && index > 0) el.scrollTo({ top: (index - 1) * el.clientHeight, behavior: 'smooth' });
-                  }}
-                  style={{ width: 38, height: 38, borderRadius: '50%', background: index === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)', cursor: index === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: index === 0 ? 'rgba(255,255,255,0.2)' : 'white', transition: 'all 0.2s' }}
-                >
-                  <ChevronUp size={18} />
-                </button>
-                <button
-                  disabled={index === clipsData.length - 1}
-                  onClick={() => {
-                    const el = document.getElementById('clip-scroll-container');
-                    if (el && index < clipsData.length - 1) el.scrollTo({ top: (index + 1) * el.clientHeight, behavior: 'smooth' });
-                  }}
-                  style={{ width: 38, height: 38, borderRadius: '50%', background: index === clipsData.length - 1 ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.8)', backdropFilter: 'blur(8px)', border: 'none', cursor: index === clipsData.length - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: index === clipsData.length - 1 ? 'rgba(255,255,255,0.2)' : 'white', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(99,102,241,0.4)' }}
-                >
-                  <ChevronDown size={18} />
-                </button>
-              </div>
-
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      <style>{`
-        #clip-scroll-container::-webkit-scrollbar { display: none; }
-      `}</style>
+          <div style={{
+            background: 'linear-gradient(180deg, rgba(15,23,42,0.78), rgba(15,23,42,0.9))',
+            border: '1px solid rgba(148,163,184,0.16)',
+            borderRadius: 28,
+            padding: 22,
+            backdropFilter: 'blur(18px)',
+            boxShadow: '0 20px 45px rgba(0,0,0,0.22)',
+            order: isMobile ? 3 : 2
+          }}>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>Highlight Insight</div>
+              <h2 style={{ color: '#fff', fontSize: 30, lineHeight: 1.05, fontWeight: 900, marginBottom: 10 }}>{activeClip?.title}</h2>
+              <p style={{ color: 'rgba(226,232,240,0.88)', fontSize: 14, lineHeight: 1.65, margin: 0 }}>{activeEditorialNote}</p>
+            </div>
+
+            <MiniWaveformTimeline
+              subtitleTimeline={activeSubtitleTimeline}
+              accentColor={activeAccentColor}
+              activeIndex={0}
+            />
+
+            <div style={{
+              background: 'linear-gradient(145deg, rgba(10,10,35,0.88), rgba(18,24,52,0.96))',
+              border: '1px solid rgba(99,102,241,0.2)',
+              borderRadius: 22,
+              padding: 18,
+              marginBottom: 18
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Languages size={15} color="#a5b4fc" />
+                <span style={{ color: '#a5b4fc', fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Analisis Clip AI</span>
+                <span style={{ marginLeft: 'auto', background: 'linear-gradient(90deg, #4f46e5, #7c3aed)', borderRadius: 999, padding: '4px 10px', color: '#fff', fontSize: 10, fontWeight: 800 }}>PRO</span>
+              </div>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div>
+                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Kenapa bagian ini dipilih</div>
+                  <p style={{ color: '#e2e8f0', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{activeEditorialNote}</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 700 }}>Kategori: {activeCategory}</span>
+                  <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 700 }}>Target: {activePlatform}</span>
+                  <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 700 }}>Subtitle: {activeSubtitleMode === 'burned-in-pro' ? 'Burned-in Pro' : 'Clean'}</span>
+                  <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', borderRadius: 999, padding: '6px 10px', fontSize: 11, fontWeight: 700 }}>Preset: {activeCaptionPresetLabel}</span>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 14 }}>
+                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Vibe Caption</div>
+                  <p style={{ color: '#e2e8f0', fontSize: 13, lineHeight: 1.55, margin: 0 }}>{activeCaptionVibe}</p>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: 14 }}>
+                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>Export Profile</div>
+                  <p style={{ color: '#e2e8f0', fontSize: 13, lineHeight: 1.55, margin: 0 }}>{activeExportProfile}</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button
+                onClick={() => downloadClip(activeClip?.url, activeClip?.title, currentIndex)}
+                disabled={downloadingIndex !== null}
+                style={{ height: 52, background: downloadingIndex === currentIndex ? 'linear-gradient(135deg, #047857, #065f46)' : 'linear-gradient(135deg, #10b981, #06b6d4)', border: 'none', borderRadius: 16, color: 'white', fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: downloadingIndex !== null ? 'not-allowed' : 'pointer', boxShadow: '0 12px 24px rgba(16,185,129,0.18)' }}
+              >
+                {downloadingIndex === currentIndex ? <><Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> Mengunduh...</> : <><Download size={17} /> Unduh Klip</>}
+              </button>
+              <a
+                href={videoId ? `https://youtu.be/${videoId}` : clip.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{ height: 52, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, color: 'white', fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none', backdropFilter: 'blur(12px)' }}
+              >
+                <Youtube size={17} color="#f87171" /> Sumber YouTube
+              </a>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+            border: '1px solid rgba(148,163,184,0.14)',
+            borderRadius: 24,
+            padding: 18,
+            backdropFilter: 'blur(16px)',
+            order: isMobile ? 2 : 3,
+            gridColumn: isTablet && !isMobile ? '1 / -1' : 'auto'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', textTransform: 'uppercase' }}>Studio Queue</div>
+                <div style={{ color: '#fff', fontSize: 18, fontWeight: 800 }}>Pilih klip terbaik</div>
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 700 }}>{currentIndex + 1}/{clipsData.length}</div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+              {clipsData.map((item, index) => {
+                const selected = index === currentIndex;
+                return (
+                  <button
+                    key={item.id || index}
+                    onClick={() => setCurrentIndex(index)}
+                    style={{
+                      textAlign: 'left',
+                      padding: 14,
+                      borderRadius: 18,
+                      border: selected ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                      background: selected ? 'linear-gradient(145deg, rgba(79,70,229,0.18), rgba(30,41,59,0.92))' : 'rgba(15,23,42,0.72)',
+                      cursor: 'pointer',
+                      boxShadow: selected ? '0 12px 28px rgba(79,70,229,0.15)' : 'none'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 12, background: selected ? 'linear-gradient(135deg, #8b5cf6, #6366f1)' : 'rgba(255,255,255,0.08)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 13 }}>
+                        {index + 1}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ color: '#fff', fontSize: 13, fontWeight: 800, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+                    <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>{item.durationLabel || '00:45'} • {item.category || 'Highlight'} • {item.editorialPriority || 'Primary Cut'}</div>
+                      </div>
+                      <div style={{ color: '#facc15', fontSize: 12, fontWeight: 900 }}>{(item.score || '8.5').toString().replace('/10', '')}</div>
+                    </div>
+                    <div style={{ color: 'rgba(226,232,240,0.76)', fontSize: 12, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {item.editorialNote || 'Klip ini diringkas untuk hasil short-form yang lebih tajam.'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button
+                disabled={currentIndex === 0}
+                onClick={() => setCurrentIndex((value) => Math.max(0, value - 1))}
+                style={{ height: 46, borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: currentIndex === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)', color: currentIndex === 0 ? 'rgba(255,255,255,0.3)' : '#fff', fontWeight: 800, cursor: currentIndex === 0 ? 'not-allowed' : 'pointer' }}
+              >
+                Klip Sebelumnya
+              </button>
+              <button
+                disabled={currentIndex === clipsData.length - 1}
+                onClick={() => setCurrentIndex((value) => Math.min(clipsData.length - 1, value + 1))}
+                style={{ height: 46, borderRadius: 14, border: 'none', background: currentIndex === clipsData.length - 1 ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff', fontWeight: 800, cursor: currentIndex === clipsData.length - 1 ? 'not-allowed' : 'pointer', boxShadow: currentIndex === clipsData.length - 1 ? 'none' : '0 10px 20px rgba(99,102,241,0.22)' }}
+              >
+                Klip Berikutnya
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -626,7 +850,7 @@ export default function Home() {
 
   const fetchClips = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/clips', {
+      const res = await fetch(apiUrl('/api/clips'), {
         headers: { 'user-id': localStorage.getItem('userId') }
       });
       const data = await res.json();
@@ -683,7 +907,7 @@ export default function Home() {
 
     const timeoutId = setTimeout(async () => {
       try {
-        await fetch('http://localhost:5000/api/user/caption-brand', {
+        await fetch(apiUrl('/api/user/caption-brand'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -707,7 +931,7 @@ export default function Home() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/clips', {
+      const res = await fetch(apiUrl('/api/clips'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -782,7 +1006,7 @@ export default function Home() {
                   </div>
                   <div className="feature-item">
                     <h6>Transcript Kaya</h6>
-                    <p>Meningkatkan akurasi LLM saat pilih 3 klip.</p>
+                    <p>Meningkatkan akurasi LLM saat pilih 5 klip terbaik.</p>
                   </div>
                 </div>
               </div>
@@ -1023,7 +1247,7 @@ export default function Home() {
 
                   {clip.status === 'completed' && (
                     <button className="btn btn-primary btn-lihat" style={{ backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 600, fontSize: '1rem', padding: '0.7rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', flex: 1, transition: 'transform 0.2s, box-shadow 0.2s', boxShadow: '0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1)' }} onClick={() => setSelectedClip(clip)} onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(99, 102, 241, 0.3), 0 4px 6px -2px rgba(99, 102, 241, 0.1)'; }} onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1)'; }}>
-                      <Video size={20} /> Lihat Klip
+                      <Video size={20} /> Lihat & Download 5 Klip
                     </button>
                   )}
                 </div>

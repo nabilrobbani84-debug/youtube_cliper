@@ -5,6 +5,7 @@ import { UserProvider } from "../UserContext";
 
 import { Home, CreditCard, LifeBuoy, Sparkles, BellRing, Scissors, ChevronDown, LogOut, CheckCheck } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { apiUrl } from '../../lib/api';
 import '../../components/Layout.css';
 
 const navItems = [
@@ -26,7 +27,7 @@ export default function Layout({ children }) {
 
   const fetchUser = async (userId) => {
     try {
-      const res = await fetch('http://localhost:5000/api/user', {
+      const res = await fetch(apiUrl('/api/user'), {
         headers: { 'user-id': userId }
       });
       const data = await res.json();
@@ -44,7 +45,7 @@ export default function Layout({ children }) {
     const userId = localStorage.getItem('userId');
     if (!userId) return;
     try {
-      const res = await fetch('http://localhost:5000/api/notifications', {
+      const res = await fetch(apiUrl('/api/notifications'), {
         headers: { 'user-id': userId }
       });
       if (res.ok) {
@@ -56,7 +57,7 @@ export default function Layout({ children }) {
   const markAllRead = async () => {
     const userId = localStorage.getItem('userId');
     try {
-      const res = await fetch('http://localhost:5000/api/notifications/read-all', {
+      const res = await fetch(apiUrl('/api/notifications/read-all'), {
         method: 'POST',
         headers: { 'user-id': userId }
       });
@@ -72,15 +73,40 @@ export default function Layout({ children }) {
       navigate.push('/login');
       return;
     }
-    fetchUser(userId);
-    fetchNotifications();
 
-    const interval = setInterval(() => {
-        fetchNotifications();
+    let interval;
+    const initSession = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/user'), {
+          headers: { 'user-id': userId }
+        });
+
+        if (!res.ok) {
+          localStorage.removeItem('userId');
+          localStorage.removeItem('userRole');
+          localStorage.removeItem('userPicture');
+          localStorage.removeItem('userName');
+          navigate.replace('/login');
+          return;
+        }
+
         fetchUser(userId);
-    }, 15000);
+        fetchNotifications();
+        interval = setInterval(() => {
+          fetchNotifications();
+          fetchUser(userId);
+        }, 15000);
+      } catch (error) {
+        console.error(error);
+        navigate.replace('/login');
+      }
+    };
 
-    return () => clearInterval(interval);
+    initSession();
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [navigate]);
 
   useEffect(() => {

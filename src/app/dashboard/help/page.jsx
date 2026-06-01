@@ -1,6 +1,7 @@
 "use client";
 import { MessageSquare, Loader2, Send } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { apiUrl } from '../../../lib/api';
 import './help.css';
 
 export default function Help() {
@@ -13,7 +14,7 @@ export default function Help() {
 
   const fetchTickets = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/tickets', {
+      const res = await fetch(apiUrl('/api/tickets'), {
         headers: { 'user-id': localStorage.getItem('userId') }
       });
       if (res.ok) {
@@ -35,7 +36,7 @@ export default function Help() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/tickets', {
+      const res = await fetch(apiUrl('/api/tickets'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

@@ -2,6 +2,7 @@
 import { CreditCard, Star, CheckCircle, Zap, Loader2, ArrowLeft, X, User, Phone, Mail, ShieldCheck, Check, Copy, ImageIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useUser } from '../../UserContext';
+import { apiUrl } from '../../../lib/api';
 import './payment.css';
 
 export default function Payment() {
@@ -19,7 +20,7 @@ export default function Payment() {
 
   const fetchTransactions = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/user/transactions', {
+      const res = await fetch(apiUrl('/api/user/transactions'), {
         headers: { 'user-id': localStorage.getItem('userId') }
       });
       if (res.ok) {
@@ -32,7 +33,7 @@ export default function Payment() {
 
   const fetchPackages = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/packages');
+      const res = await fetch(apiUrl('/api/packages'));
       if (res.ok) setPackages(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -61,7 +62,7 @@ export default function Payment() {
     const finalPrice = checkoutData.price + (isProtected ? 2500 : 0);
     
     try {
-      const res = await fetch('http://localhost:5000/api/topup', {
+      const res = await fetch(apiUrl('/api/topup'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

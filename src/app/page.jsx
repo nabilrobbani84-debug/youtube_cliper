@@ -3,6 +3,7 @@ import { CheckCircle2, Scissors, Youtube, Instagram, Wand2, Zap, Clock, MessageS
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { apiUrl } from '../lib/api';
 
 export default function Landing() {
   const navigate = useRouter();
@@ -11,8 +12,43 @@ export default function Landing() {
   const [url, setUrl] = useState('');
   const [activeFaq, setActiveFaq] = useState(null);
 
+  const clearSession = () => {
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userPicture');
+    localStorage.removeItem('userName');
+    setIsLoggedIn(false);
+  };
+
   useEffect(() => {
-    setIsLoggedIn(!!localStorage.getItem('userId'));
+    const syncSession = async () => {
+      const userId = localStorage.getItem('userId');
+      if (!userId) {
+        setIsLoggedIn(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(apiUrl('/api/user'), {
+          headers: { 'user-id': userId }
+        });
+
+        if (res.ok) {
+          setIsLoggedIn(true);
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to validate session:', error);
+      }
+
+      localStorage.removeItem('userId');
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userPicture');
+      localStorage.removeItem('userName');
+      setIsLoggedIn(false);
+    };
+
+    syncSession();
   }, []);
 
   const handleStart = (e) => {
@@ -83,7 +119,7 @@ export default function Landing() {
                     <Link href="/login" className="text-sm font-semibold text-[#475569] hover:text-[#1e1b4b] transition-colors px-2">
                       Masuk
                     </Link>
-                    <Link href="/login" className="bg-[#5340ff] hover:bg-[#4330df] text-white px-6 py-2.5 rounded-full text-sm font-bold transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 shadow-indigo-500/20">
+                    <Link href="/register" className="bg-[#5340ff] hover:bg-[#4330df] text-white px-6 py-2.5 rounded-full text-sm font-bold transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 shadow-indigo-500/20">
                       Coba Gratis
                     </Link>
                   </>
@@ -108,7 +144,7 @@ export default function Landing() {
             <a href="#faq" className="block px-3 py-3 rounded-md text-base font-semibold text-gray-700 hover:text-[#5340ff] hover:bg-gray-50" onClick={() => setIsMenuOpen(false)}>FAQ</a>
             <div className="pt-4 mt-2 border-t border-gray-100 flex flex-col gap-3">
               <Link href="/login" className="w-full text-center bg-gray-100 text-[#1e1b4b] px-4 py-3 rounded-xl font-bold">Masuk</Link>
-              <Link href="/login" className="w-full text-center bg-[#5340ff] text-white px-4 py-3 rounded-xl font-bold shadow-md shadow-indigo-500/20">Coba Gratis</Link>
+              <Link href="/register" className="w-full text-center bg-[#5340ff] text-white px-4 py-3 rounded-xl font-bold shadow-md shadow-indigo-500/20">Coba Gratis</Link>
             </div>
           </div>
         )}
@@ -128,7 +164,7 @@ export default function Landing() {
         </h1>
         
         <p className="text-[#64748b] text-[1.1rem] sm:text-[1.25rem] max-w-3xl mx-auto mb-12 font-medium leading-relaxed">
-          Hemat waktu editing hingga 90%. AI kami otomatis mendeteksi momen terbaik, memotong format vertikal, dan menambahkan subtitle Bahasa Indonesia untuk TikTok, Reels & Shorts.
+          Hemat waktu editing hingga 90%. AI kami otomatis mendeteksi momen terbaik, memotong video jadi 5 klip siap upload, dan menyediakan tombol download untuk setiap klip.
         </p>
 
         <form onSubmit={handleStart} className="max-w-2xl mx-auto bg-white p-2.5 rounded-full shadow-[0_10px_40px_-10px_rgba(83,64,255,0.15)] flex flex-col sm:flex-row items-center gap-3 border border-gray-100">
@@ -149,6 +185,35 @@ export default function Landing() {
              Generate Klip <Wand2 size={18} strokeWidth={2.5} />
           </button>
         </form>
+
+        <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-3 text-sm">
+          {isLoggedIn ? (
+            <>
+              <Link href="/dashboard" className="inline-flex items-center justify-center min-w-[180px] px-5 py-3 rounded-full bg-[#1e1b4b] text-white font-bold shadow-sm hover:bg-[#16133c] transition-colors">
+                Buka Dashboard
+              </Link>
+              <button
+                type="button"
+                onClick={clearSession}
+                className="inline-flex items-center justify-center min-w-[180px] px-5 py-3 rounded-full border border-gray-200 bg-white text-[#475569] font-bold hover:border-[#5340ff] hover:text-[#5340ff] transition-colors"
+              >
+                Ganti Akun
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className="inline-flex items-center justify-center min-w-[180px] px-5 py-3 rounded-full bg-[#1e1b4b] text-white font-bold shadow-sm hover:bg-[#16133c] transition-colors">
+                Masuk Sekarang
+              </Link>
+              <Link href="/register" className="inline-flex items-center justify-center min-w-[180px] px-5 py-3 rounded-full border border-[#d9d4ff] bg-white text-[#5340ff] font-bold hover:bg-[#f6f4ff] transition-colors">
+                Daftar Gratis
+              </Link>
+            </>
+          )}
+        </div>
+        <p className="mt-3 text-sm text-[#64748b] font-medium">
+          Fitur login tersedia di <span className="text-[#1e1b4b] font-bold">/login</span> dan register di <span className="text-[#1e1b4b] font-bold">/register</span>.
+        </p>
       </div>
 
       {/* Feature Section */}
