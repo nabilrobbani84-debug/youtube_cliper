@@ -138,6 +138,26 @@ export default function Admin() {
     }
   };
 
+  const editCredits = async (userId, currentCredits) => {
+    const newCreditsStr = prompt("Masukkan jumlah kredit baru:", currentCredits);
+    if (newCreditsStr === null) return;
+    const newCredits = parseInt(newCreditsStr, 10);
+    if (isNaN(newCredits)) {
+      alert("Masukkan angka yang valid!");
+      return;
+    }
+    try {
+      await fetch(apiUrl(`/api/admin/users/${userId}/credits`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: newCredits, action: 'set' })
+      });
+      fetchData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('userId');
     localStorage.removeItem('userRole');
@@ -215,7 +235,10 @@ export default function Admin() {
                         <span className="font-medium">{u.display_name || u.username}</span>
                       </div>
                     </td>
-                    <td className="font-bold text-primary">{u.credits}</td>
+                    <td className="font-bold text-primary">
+                      <span style={{ marginRight: '10px' }}>{u.credits}</span>
+                      <button className="credit-btn" style={{ padding: '2px 8px', fontSize: '0.75rem', backgroundColor: '#4f46e5' }} onClick={() => editCredits(u.id, u.credits)}>Set</button>
+                    </td>
                     <td style={{fontSize: '0.8rem', color: '#64748b'}}>{new Date(u.created_at).toLocaleDateString()}</td>
                     <td>
                       <button className="credit-btn" onClick={() => addCredits(u.id, 10)}>+10 Creds</button>

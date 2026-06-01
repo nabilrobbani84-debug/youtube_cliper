@@ -5,6 +5,7 @@ const db = require('./db');
 const path = require('path');
 const fs = require('fs');
 const { renderYouTubeSubclips } = require('./clipper');
+const { exec } = require('child_process');
 
 const app = express();
 const PORT = 5000;
@@ -362,6 +363,33 @@ function buildSubtitleTimeline(entries = []) {
     });
 }
 
+function runContentAnalysis(videoId, title, description, duration) {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'analyze_content.py');
+    const cleanTitle = (title || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '');
+    const cleanDesc = (description || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').substring(0, 300);
+    const cmd = `python "${scriptPath}" "${videoId}" "${cleanTitle}" "${cleanDesc}" ${duration}`;
+    
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[ContentAnalysis] Error running script:', error.message);
+        return resolve(null);
+      }
+      try {
+        const result = JSON.parse(stdout.trim());
+        if (result.error) {
+          console.error('[ContentAnalysis] Script error:', result.error);
+          return resolve(null);
+        }
+        resolve(result);
+      } catch(e) {
+        console.error('[ContentAnalysis] JSON parse error:', e.message);
+        resolve(null);
+      }
+    });
+  });
+}
+
 function simulateClipProcessing(mainClipId, videoId, options = {}) {
     const {
         autoSubtitle = true,
@@ -383,11 +411,46 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                 }
                 : null;
 
+            // Fetch YouTube Title, Description & Duration via yt-dlp
+            let ytTitle = "Video YouTube";
+            let ytDesc = "";
+            let ytDuration = 60.0;
+            try {
+                if (options.url) {
+                    const ytInfo = await new Promise((resolve, reject) => {
+                        const cmd = `python -m yt_dlp --dump-json "${options.url}"`;
+                        exec(cmd, (err, stdout) => {
+                            if (err) return reject(err);
+                            try {
+                                resolve(JSON.parse(stdout.trim()));
+                            } catch (e) {
+                                reject(e);
+                            }
+                        });
+                    });
+                    if (ytInfo) {
+                        ytTitle = ytInfo.title || "Video YouTube";
+                        ytDesc = ytInfo.description || "";
+                        ytDuration = Number(ytInfo.duration) || 60.0;
+                    }
+                }
+            } catch (e) {
+                console.error('[simulateClipProcessing] failed to get video info:', e.message);
+            }
+
+            // Run AI analysis on transcript and description
+            const analysis = await runContentAnalysis(videoId, ytTitle, ytDesc, ytDuration);
+            const isEducational = analysis ? analysis.is_educational : false;
+            const customClips = analysis ? analysis.clips : [];
+
             // Try to render actual subclips from YouTube if possible
             let rendered = [];
             try {
                 if (videoId) {
-                    rendered = await renderYouTubeSubclips(mainClipId, videoId, { count: 5 });
+                    rendered = await renderYouTubeSubclips(mainClipId, videoId, { 
+                        clips: customClips,
+                        isEducational
+                    });
                 }
             } catch (e) {
                 console.error('[simulateClipProcessing] render error', e.message);
@@ -399,36 +462,44 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                 ? rendered.map(r => `http://localhost:${PORT}${r.url}`)
                 : PUBLIC_RENDER_URLS.slice(0, 5);
 
-            const momentVariants = [
-                { title: "Hook pembuka yang langsung ngunci perhatian", score: "9.7", category: "Hook & Retention", platform: layoutProfile.platform, editorialNote: "Opening dipilih karena 3 detik pertamanya punya tensi tinggi dan aman dipakai sebagai cold open tanpa perlu intro panjang.", subtitles: [{ text: "INI bagian yang bikin penonton langsung berhenti scroll.", emphasis: ["INI", "berhenti", "scroll"] }] },
-                { title: "Penjelasan inti yang paling enak dipotong jadi short", score: "9.3", category: "Value Delivery", platform: "YouTube Shorts, Reels", editorialNote: "Bagian ini cocok dijadikan klip edukatif karena kalimat utamanya jelas, ritmenya stabil, dan mudah diberi subtitle tebal.", subtitles: [{ text: "Poin pentingnya disampaikan dengan jelas di bagian ini.", emphasis: ["Poin", "jelas"] }] },
-                { title: "Reaksi emosional paling kuat di dalam video", score: "9.5", category: "Emotion Spike", platform: "TikTok, Shorts", editorialNote: "Momen reaksi diprioritaskan karena ekspresi dan jeda dramatisnya terasa natural, sehingga hasil edit terlihat lebih premium.", subtitles: [{ text: "Reaksi ini yang bikin klimaks videonya terasa hidup.", emphasis: ["Reaksi", "klimaks", "hidup"] }] },
-                { title: "Punchline paling tajam untuk dorong replay", score: "9.1", category: "Punchline", platform: "TikTok, Reels", editorialNote: "Dipilih karena kalimat akhirnya punya efek replay yang kuat dan tetap jelas walau dipotong vertikal 9:16.", subtitles: [{ text: "Bagian akhirnya punya punchline yang gampang diingat.", emphasis: ["punchline", "gampang", "diingat"] }] },
-                { title: "Momen transisi cerita yang paling mulus", score: "8.9", category: "Story Beat", platform: "Shorts, LinkedIn Video", editorialNote: "Segmen ini jadi alternatif yang lebih tenang tapi tetap kuat, cocok untuk short yang ingin terlihat lebih rapi dan editorial.", subtitles: [{ text: "Transisi ceritanya paling halus ada di bagian ini.", emphasis: ["Transisi", "halus"] }] }
-            ];
-
             const durationPresets = ['00:34', '01:05', '00:42', '00:51', '00:38'];
-            const exportProfiles = [
-                'Cinematic punch-in + color grade',
-                'Retention cut + rhythm captions',
-                'Clean educational framing',
-                'Emotion-led zoom pacing',
-                'Soft CTA finishing pass'
-            ];
+            
+            const hydratedSubClips = [];
+            for (let i = 0; i < 5; i++) {
+                const analysisClip = customClips[i] || null;
+                const clipUrl = clipUrls[i] || PUBLIC_RENDER_URLS[i % PUBLIC_RENDER_URLS.length];
+                
+                const title = analysisClip ? analysisClip.title : `Alt cut ${i + 1} untuk distribusi`;
+                const category = analysisClip ? analysisClip.category : (isEducational ? "Value Delivery" : "Highlight");
+                const editorialPriority = analysisClip ? analysisClip.editorialPriority : (i === 0 ? "Hero Clip" : "Primary Cut");
+                const clipLabel = analysisClip ? analysisClip.clipLabel : (i < 3 ? "Primary Cut" : "Secondary Cut");
+                
+                // Hook text matching
+                const hookText = analysisClip ? analysisClip.hook_text : `Hook terkuat: ${title}`;
+                
+                const simulatedSubs = analysisClip && analysisClip.subtitles ? analysisClip.subtitles : [{ text: "Preview profesional klip.", emphasis: [] }];
+                const subtitleTimeline = autoSubtitle ? buildSubtitleTimeline(simulatedSubs) : [];
+                
+                // Layout adjustment for educational framing:
+                const finishingText = isEducational
+                    ? "AUTO REFRAME + CINEMATIC GRADING • CLEAN EDUCATIONAL FRAMING"
+                    : `${layoutProfile.finish} • Cinematic zoom pacing`;
+                    
+                const exportProfileText = isEducational
+                    ? "Clean educational framing"
+                    : "Emotion-led zoom pacing";
 
-            // Use the clipUrls to create hydrated sub-clips
-            const picked = [...momentVariants].slice(0, 5);
-            const hydratedSubClips = picked.map((item, i) => {
-                const subtitleTimeline = autoSubtitle ? buildSubtitleTimeline(item.subtitles) : [];
-                return {
+                hydratedSubClips.push({
                     id: `sub-${uuidv4()}`,
-                    url: clipUrls[i] || PUBLIC_RENDER_URLS[i % PUBLIC_RENDER_URLS.length],
-                    title: item.title,
-                    score: item.score,
-                    category: item.category,
-                    platform: item.platform,
-                    editorialNote: item.editorialNote,
-                    subtitles: autoSubtitle ? item.subtitles : [],
+                    url: clipUrl,
+                    title: title,
+                    score: ['9.7', '9.5', '9.3', '9.1', '8.9'][i],
+                    category: category,
+                    platform: layoutProfile.platform,
+                    editorialNote: isEducational 
+                        ? "Pembicaraan ini terpotong rapi berdasarkan jeda intonasi suara pembicara dan ter-framing bersih untuk edukasi."
+                        : "Visual ter-reframe dinamis berfokus penuh pada subjek pembicara agar memicu retensi penonton secara maksimal.",
+                    subtitles: autoSubtitle ? simulatedSubs : [],
                     subtitleTimeline,
                     subtitleMode: autoSubtitle ? 'burned-in-pro' : 'clean-no-subs',
                     captionPreset,
@@ -437,15 +508,16 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                     accentColor: captionProfile.accent,
                     captionBrand: resolvedBrand,
                     layoutLabel: layoutProfile.label,
-                    finishing: `${layoutProfile.finish} • ${exportProfiles[i % exportProfiles.length]}`,
-                    hook: `${layoutProfile.hookPrefix}: ${item.title}`,
+                    finishing: finishingText,
+                    hook: hookText,
                     durationLabel: durationPresets[i % durationPresets.length],
-                    exportProfile: exportProfiles[i % exportProfiles.length],
-                    editorialPriority: i === 0 ? 'Hero Clip' : i < 3 ? 'Primary Cut' : 'Support Cut'
-                };
-            });
+                    exportProfile: exportProfileText,
+                    editorialPriority: editorialPriority,
+                    clipLabel: clipLabel
+                });
+            }
 
-            const mainTitle = `${picked[0].title} • 5 klip profesional siap upload`;
+            const mainTitle = `${hydratedSubClips[0].title} • 5 klip profesional siap upload`;
 
             db.run(
                 "UPDATE clips SET status = 'completed', title = ?, sub_clips = ? WHERE id = ?",
@@ -510,6 +582,7 @@ app.post('/api/clips', (req, res) => {
                 function(err) {
                     if (err) return res.status(500).json({ error: err.message });
                     simulateClipProcessing(id, vId, {
+                        url,
                         autoSubtitle: autoSubtitle !== false,
                         layout: layout || 'auto_magic',
                         captionPreset: captionPreset || 'viral_neon',
@@ -686,10 +759,16 @@ app.get('/api/admin/users', (req, res) => {
 
 app.post('/api/admin/users/:id/credits', (req, res) => {
     const { id } = req.params;
-    const { amount } = req.body;
-    db.run("UPDATE users SET credits = credits + ? WHERE id = ?", [amount, id], (err) => {
+    const { amount, action } = req.body;
+    
+    let query = "UPDATE users SET credits = credits + ? WHERE id = ?";
+    if (action === 'set') {
+        query = "UPDATE users SET credits = ? WHERE id = ?";
+    }
+    
+    db.run(query, [amount, id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, message: `Berhasil menambahkan ${amount} kredit.` });
+        res.json({ success: true, message: `Berhasil memperbarui kredit.` });
     });
 });
 
@@ -823,6 +902,207 @@ app.get('/api/download', async (req, res) => {
         console.error('[Download Proxy Error]', err.message);
         res.status(500).type('text/plain').send(`Gagal mengunduh file: ${err.message}`);
     }
+});
+
+app.get('/', (req, res) => {
+    db.get("SELECT COUNT(*) as users FROM users", (err, usersRow) => {
+        db.get("SELECT COUNT(*) as clips FROM clips", (err, clipsRow) => {
+            db.get("SELECT COUNT(*) as tickets FROM tickets", (err, ticketsRow) => {
+                db.get("SELECT SUM(price) as revenue FROM transactions WHERE status = 'Success'", (err, revRow) => {
+                    const stats = {
+                        users: usersRow?.users || 0,
+                        clips: clipsRow?.clips || 0,
+                        tickets: ticketsRow?.tickets || 0,
+                        revenue: revRow?.revenue || 0
+                    };
+                    
+                    res.send(`
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouClip API - Backend Status Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: rgba(30, 41, 59, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .header {
+            margin-bottom: 30px;
+        }
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #ec4899, #8b5cf6, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            margin-bottom: 20px;
+        }
+        .badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 1.1rem;
+            max-width: 500px;
+            margin: 0 auto 30px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #f8fafc;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
+        }
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px 36px;
+            background: linear-gradient(to right, #ec4899, #8b5cf6);
+            color: white;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 12px;
+            box-shadow: 0 10px 20px -5px rgba(139, 92, 246, 0.4);
+            transition: all 0.3s ease;
+            font-size: 1.1rem;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 25px -5px rgba(139, 92, 246, 0.6);
+        }
+        .btn-secondary {
+            color: #94a3b8;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.2s ease;
+        }
+        .btn-secondary:hover {
+            color: #f8fafc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">YouClip Engine</div>
+            <div class="badge">API & Processing Server Online</div>
+            <p class="subtitle">Backend server YouTube Clipper Anda aktif dan memproses render video otomatis dengan teknologi AI Auto-Reframe.</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">${stats.users}</div>
+                <div class="stat-label">Total Pengguna</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${stats.clips}</div>
+                <div class="stat-label">Video Diproses</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${stats.tickets}</div>
+                <div class="stat-label">Tiket Support</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">Rp ${(stats.revenue || 0).toLocaleString('id-ID')}</div>
+                <div class="stat-label">Pendapatan</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="http://localhost:3000" class="btn-primary">Buka Aplikasi Frontend</a>
+            <a href="/api/clips" class="btn-secondary" target="_blank">Lihat Data Endpoint API (/api/clips) →</a>
+        </div>
+    </div>
+</body>
+</html>
+                    `);
+                });
+            });
+        });
+    });
 });
 
 app.listen(PORT, () => {
