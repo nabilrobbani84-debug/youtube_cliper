@@ -420,8 +420,7 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
             try {
                 if (options.url) {
                     const ytInfo = await new Promise((resolve, reject) => {
-                        const cmd = `python -m yt_dlp --dump-json "${options.url}"`;
-                        exec(cmd, (err, stdout) => {
+                        execFile('python', ['-m', 'yt_dlp', '--dump-json', options.url], (err, stdout) => {
                             if (err) return reject(err);
                             try {
                                 resolve(JSON.parse(stdout.trim()));

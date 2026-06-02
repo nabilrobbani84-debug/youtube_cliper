@@ -19,9 +19,19 @@ function downloadYoutubeToFile(videoId, outPath) {
   return new Promise((resolve, reject) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const ffmpegDir = path.dirname(ffmpegStatic);
-    const cmd = `python -m yt_dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --ffmpeg-location "${ffmpegDir}" "${url}" -o "${outPath}"`;
+    const args = [
+      '-m',
+      'yt_dlp',
+      '-f',
+      'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '--ffmpeg-location',
+      ffmpegDir,
+      url,
+      '-o',
+      outPath
+    ];
     
-    exec(cmd, (error, stdout, stderr) => {
+    execFile('python', args, (error, stdout, stderr) => {
       if (error) {
         return reject(new Error(`YouTube download failed: ${error.message}`));
       }

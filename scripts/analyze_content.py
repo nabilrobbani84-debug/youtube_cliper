@@ -92,25 +92,42 @@ def analyze_video_content(video_id, title, description, total_duration):
     categories = ["Hero Clip", "Primary Cut", "Primary Cut", "Support Cut", "Support Cut"]
     clip_labels = ["Primary Cut", "Primary Cut", "Primary Cut", "Secondary Cut", "Secondary Cut"]
     
+    # Clean the YouTube title
+    clean_yt_title = re.sub(r'[\(\[\{].*?[\)\]\}]', '', title)
+    clean_yt_title = re.sub(r'\s*\|\s*.*$', '', clean_yt_title)
+    clean_yt_title = re.sub(r'\s*-\s*.*$', '', clean_yt_title)
+    clean_yt_title = clean_yt_title.strip()
+    if not clean_yt_title or clean_yt_title.lower() == "video youtube":
+        clean_yt_title = "Klip Terpilih"
+
     for i, seg in enumerate(picked_segments):
         # Extract a punchy text sentence for title
         clean_text = re.sub(r'\[.*?\]', '', seg['text']).strip() # remove bracket info
-        words = clean_text.split()
-        if len(words) > 8:
-            punchy_title = " ".join(words[:8]) + "..."
-        else:
-            punchy_title = clean_text if clean_text else f"Klip Terbaik #{i+1}"
-            
-        # Capitalize first letter
-        punchy_title = punchy_title[0].upper() + punchy_title[1:] if punchy_title else f"Klip Terbaik #{i+1}"
+        is_fallback_text = "momen kunci" in clean_text.lower() or not clean_text or clean_text == f"Klip Terbaik #{i+1}"
         
+        words = clean_text.split()
+        if words and not is_fallback_text:
+            punchy_text = " ".join(words[:6]) + ("..." if len(words) > 6 else "")
+            punchy_text = punchy_text[0].upper() + punchy_text[1:]
+        else:
+            punchy_text = ""
+            
         # Prefix type of cut in title
         if is_educational:
             prefix = "[EDUKASI]"
         else:
             prefix = "[NARRATIVE]" if i % 2 == 0 else "[SPIKE]"
             
-        title_format = f"{prefix} {punchy_title}"
+        # Create final attractive title
+        if punchy_text:
+            yt_words = clean_yt_title.split()
+            if len(yt_words) > 6:
+                yt_snippet = " ".join(yt_words[:6]) + "..."
+            else:
+                yt_snippet = clean_yt_title
+            title_format = f"{prefix} {yt_snippet}: {punchy_text}"
+        else:
+            title_format = f"{prefix} {clean_yt_title} (Part {i+1})"
         
         # Subtitles simulation/timings formatting
         simulated_subs = [{"text": clean_text[:45], "emphasis": [words[0]] if words else []}]
