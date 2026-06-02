@@ -182,113 +182,135 @@ function getCaptionPresetMeta(preset, customBrand = null) {
   return presets[preset] || presets.viral_neon;
 }
 
-function AnimatedSubtitle({ subtitles, subtitleTimeline = [], isActive, captionPreset = 'viral_neon', customBrand = null }) {
-  const [subIndex, setSubIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
-  const [wordProgress, setWordProgress] = useState(0);
+function AnimatedSubtitle({ subtitles, subtitleTimeline = [], isActive, captionPreset = 'viral_neon', customBrand = null, currentTime = 0 }) {
   const presetMeta = getCaptionPresetMeta(captionPreset, customBrand);
-  const activeSubtitle = subtitles[subIndex] || { text: '' };
-  const activeTimeline = subtitleTimeline[subIndex] || null;
-  const words = typeof activeSubtitle === 'string'
-    ? activeSubtitle.split(' ')
-    : (activeSubtitle.text || '').split(' ');
+
+  // Parse all lines with cumulative timings
+  const durations = subtitleTimeline.length > 0
+    ? subtitleTimeline.map((entry) => Math.max(1.8, entry.totalDuration || 1.8))
+    : subtitles.map(() => 2.8);
+
+  let cumulativeStart = 0;
+  const lines = subtitleTimeline.length > 0 
+    ? subtitleTimeline.map((entry, idx) => {
+        const start = cumulativeStart;
+        const duration = durations[idx];
+        const end = start + duration;
+        cumulativeStart = end;
+        return { ...entry, start, end, duration };
+      })
+    : subtitles.map((text, idx) => {
+        const start = cumulativeStart;
+        const duration = durations[idx];
+        const end = start + duration;
+        cumulativeStart = end;
+        return { text: typeof text === 'string' ? text : text.text, start, end, duration, wordTimings: null };
+      });
+
+  const totalLoopDuration = cumulativeStart || 1;
+  const relativeTime = currentTime % totalLoopDuration;
+
+  // Find active line
+  const activeLineIndex = lines.findIndex(line => relativeTime >= line.start && relativeTime < line.end);
+  const activeLine = lines[activeLineIndex >= 0 ? activeLineIndex : 0] || null;
+
+  if (!activeLine) return null;
+
+  const text = typeof activeLine.text === 'string' ? activeLine.text : (activeLine.text || '');
+  const words = text.split(' ').filter(Boolean);
+  
   const emphasisWords = new Set(
-    typeof activeSubtitle === 'string'
-      ? []
-      : (activeSubtitle.emphasis || []).map((word) => word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase())
+    (activeLine.emphasis || []).map((word) => word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase())
   );
 
-  useEffect(() => {
-    if (!isActive) return;
-    setSubIndex(0);
-    setVisible(true);
-    setWordProgress(0);
-    const durations = subtitleTimeline.length > 0
-      ? subtitleTimeline.map((entry) => Math.max(1800, ((entry.totalDuration || 1.8) * 1000) + 900))
-      : subtitles.map(() => 2800);
-    let currentIndex = 0;
-    let timeoutId = null;
+  const localTime = relativeTime - activeLine.start;
 
-    const advance = () => {
-      const lineDuration = durations[currentIndex] || 2800;
-      timeoutId = setTimeout(() => {
-        setVisible(false);
-        setTimeout(() => {
-          currentIndex = (currentIndex + 1) % Math.max(subtitles.length, 1);
-          setSubIndex(currentIndex);
-          setVisible(true);
-          setWordProgress(0);
-          advance();
-        }, 220);
-      }, lineDuration);
-    };
-
-    advance();
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [isActive, subtitles, subtitleTimeline]);
-
-  useEffect(() => {
-    if (!isActive || words.length === 0) return;
-    setWordProgress(0);
-    if (activeTimeline?.wordTimings?.length) {
-      const timers = activeTimeline.wordTimings.map((timing, index) => setTimeout(() => {
-        setWordProgress(index);
-      }, Math.max(0, timing.start * 1000)));
-      return () => timers.forEach((timer) => clearTimeout(timer));
-    }
-
-    const step = Math.max(140, Math.floor(1500 / Math.max(words.length, 1)));
-    const interval = setInterval(() => {
-      setWordProgress((value) => {
-        if (value >= words.length - 1) {
-          clearInterval(interval);
-          return value;
+  // Find active word timing index
+  let wordProgress = 0;
+  if (activeLine.wordTimings && activeLine.wordTimings.length > 0) {
+    wordProgress = activeLine.wordTimings.findIndex(w => localTime >= w.start && localTime < w.end);
+    if (wordProgress === -1) {
+      // Find the last word that has started
+      for (let i = activeLine.wordTimings.length - 1; i >= 0; i--) {
+        if (localTime >= activeLine.wordTimings[i].start) {
+          wordProgress = i;
+          break;
         }
-        return value + 1;
-      });
-    }, step);
-
-    return () => clearInterval(interval);
-  }, [isActive, subIndex, words.length, activeTimeline]);
+      }
+    }
+    if (wordProgress === -1) wordProgress = 0;
+  } else {
+    // Fallback if no word timings are available (e.g. mock subtitles)
+    const step = activeLine.duration / Math.max(words.length, 1);
+    wordProgress = Math.min(words.length - 1, Math.floor(localTime / step));
+  }
 
   return (
-    <div className="absolute inset-x-0 bottom-[22%] flex justify-center pointer-events-none z-10 px-6">
+    <div 
+      style={{
+        position: 'absolute',
+        right: '8%',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        textAlign: 'right',
+        maxWidth: '45%',
+        pointerEvents: 'none',
+        zIndex: 10
+      }}
+    >
       <div
-        className="text-center transition-all duration-300 transform"
         style={{ 
-          opacity: visible ? 1 : 0, 
-          transform: visible ? 'translateY(0) scale(1)' : 'translateY(15px) scale(0.95)',
-          filter: visible ? 'drop-shadow(0 15px 15px rgba(0,0,0,0.6))' : 'none'
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          justifyContent: 'flex-end', 
+          gap: '8px 12px',
+          backgroundColor: 'rgba(0, 0, 0, 0.55)',
+          padding: '16px 22px', 
+          borderRadius: '16px',
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.3)',
+          border: '1px solid rgba(255, 255, 255, 0.08)'
         }}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
-          {words.map((word, wi) => {
-            const normalizedWord = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
-            const isHighlighted = emphasisWords.has(normalizedWord) || (word === word.toUpperCase() && word.length > 2 && !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(word));
-            const isSpoken = wi <= wordProgress;
-            return (
-              <span 
-                key={wi} 
-                className="font-black text-[25px] md:text-[32px] tracking-tight uppercase px-[6px] py-[2px] rounded-lg"
-                style={{
-                  color: isHighlighted ? presetMeta.accent : presetMeta.textColor,
-                  background: isHighlighted ? presetMeta.background : 'transparent',
-                  textShadow: presetMeta.shadow,
-                  WebkitTextStroke: presetMeta.stroke,
-                  lineHeight: '1.2',
-                  transform: isSpoken ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.92)',
-                  opacity: isSpoken ? 1 : 0.35,
-                  filter: isSpoken ? 'none' : 'blur(0.2px)',
-                  transition: 'transform 180ms ease, opacity 180ms ease, filter 180ms ease, color 180ms ease'
-                }}
-              >
-                {word}
-              </span>
-            );
-          })}
-        </div>
+        {words.map((word, wi) => {
+          const normalizedWord = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
+          const isHighlighted = emphasisWords.has(normalizedWord) || (word === word.toUpperCase() && word.length > 2 && !/[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(word));
+          const isActiveWord = wi === wordProgress;
+          const isSpoken = wi <= wordProgress;
+          
+          return (
+            <span 
+              key={wi} 
+              style={{
+                fontFamily: '"Outfit", "Inter", sans-serif',
+                fontWeight: isHighlighted ? 900 : 800,
+                fontSize: isHighlighted && isActiveWord ? '38px' : '26px',
+                letterSpacing: '-0.02em',
+                textTransform: 'uppercase',
+                padding: '2px 4px',
+                lineHeight: '1.1',
+                color: isActiveWord
+                  ? (isHighlighted ? '#fbbf24' : presetMeta.accent)
+                  : 'rgba(255, 255, 255, 0.45)',
+                textShadow: isHighlighted && isActiveWord
+                  ? '0 0 15px rgba(251, 191, 36, 0.65), 2px 2px 0 #000'
+                  : presetMeta.shadow,
+                transform: isActiveWord 
+                  ? (isHighlighted ? 'scale(1.4) translateY(-4px)' : 'scale(1.15) translateY(-2px)')
+                  : 'scale(0.92)',
+                opacity: isSpoken ? 1 : 0.3,
+                filter: isSpoken ? 'none' : 'blur(0.4px)',
+                transition: 'all 120ms cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+              }}
+            >
+              {word}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -373,6 +395,7 @@ function MiniWaveformTimeline({ subtitleTimeline = [], accentColor = '#facc15', 
 
 function ClipViewerOverlay({ clip, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [downloadingIndex, setDownloadingIndex] = useState(null);
   const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
@@ -558,6 +581,7 @@ function ClipViewerOverlay({ clip, onClose }) {
                 loop
                 controls={false}
                 preload="auto"
+                onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
               />
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(2,6,23,0.15), transparent 22%, transparent 52%, rgba(2,6,23,0.92))' }} />
 
@@ -583,6 +607,7 @@ function ClipViewerOverlay({ clip, onClose }) {
                 isActive={true}
                 captionPreset={activeCaptionPreset}
                 customBrand={activeCustomBrand}
+                currentTime={currentTime}
               />
 
               <div style={{ position: 'absolute', left: 16, right: 16, bottom: 18 }}>

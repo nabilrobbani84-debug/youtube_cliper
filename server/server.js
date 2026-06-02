@@ -395,7 +395,8 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
         autoSubtitle = true,
         layout = 'auto_magic',
         captionPreset = 'viral_neon',
-        captionBrand = null
+        captionBrand = null,
+        brandName = ''
     } = options;
     const delay = 15000 + Math.random() * 15000; // 15-30 detik
     setTimeout(() => {
@@ -449,7 +450,8 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                 if (videoId) {
                     rendered = await renderYouTubeSubclips(mainClipId, videoId, { 
                         clips: customClips,
-                        isEducational
+                        isEducational,
+                        brandName
                     });
                 }
             } catch (e) {
@@ -563,8 +565,7 @@ app.post('/api/clips', (req, res) => {
     const { url, autoSubtitle, layout, captionPreset, captionBrand } = req.body;
     const userId = req.headers['user-id'];
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    
-    db.get("SELECT credits FROM users WHERE id = ?", [userId], (err, user) => {
+    db.get("SELECT credits, username, display_name FROM users WHERE id = ?", [userId], (err, user) => {
         if (err) return res.status(500).json({ error: "Database error: " + err.message });
         if (!user) return res.status(404).json({ error: "User tidak ditemukan" });
         if (user.credits <= 0) return res.status(400).json({ error: "Kredit tidak mencukupi" });
@@ -581,12 +582,14 @@ app.post('/api/clips', (req, res) => {
                 [id, userId, url, "Menganalisa video...", thumb, "processing", layout || 'auto_magic', autoSubtitle === false ? 0 : 1, captionPreset || 'viral_neon', captionBrand ? JSON.stringify(captionBrand) : null],
                 function(err) {
                     if (err) return res.status(500).json({ error: err.message });
+                    const brandName = captionBrand?.name || user.display_name || user.username;
                     simulateClipProcessing(id, vId, {
                         url,
                         autoSubtitle: autoSubtitle !== false,
                         layout: layout || 'auto_magic',
                         captionPreset: captionPreset || 'viral_neon',
-                        captionBrand: captionBrand || null
+                        captionBrand: captionBrand || null,
+                        brandName: brandName
                     });
                     res.json({
                         id,
