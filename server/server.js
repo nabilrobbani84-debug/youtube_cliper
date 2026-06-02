@@ -5,7 +5,7 @@ const db = require('./db');
 const path = require('path');
 const fs = require('fs');
 const { renderYouTubeSubclips } = require('./clipper');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 const app = express();
 const PORT = 5000;
@@ -366,13 +366,13 @@ function buildSubtitleTimeline(entries = []) {
 function runContentAnalysis(videoId, title, description, duration) {
   return new Promise((resolve) => {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'analyze_content.py');
-    const cleanTitle = (title || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '');
-    const cleanDesc = (description || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').substring(0, 300);
-    const cmd = `python "${scriptPath}" "${videoId}" "${cleanTitle}" "${cleanDesc}" ${duration}`;
+    const cleanTitle = (title || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ');
+    const cleanDesc = (description || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ').substring(0, 300);
     
-    exec(cmd, (error, stdout, stderr) => {
+    execFile('python', [scriptPath, videoId, cleanTitle, cleanDesc, duration.toString()], (error, stdout, stderr) => {
       if (error) {
         console.error('[ContentAnalysis] Error running script:', error.message);
+        console.error('[ContentAnalysis] stderr:', stderr);
         return resolve(null);
       }
       try {
@@ -384,6 +384,7 @@ function runContentAnalysis(videoId, title, description, duration) {
         resolve(result);
       } catch(e) {
         console.error('[ContentAnalysis] JSON parse error:', e.message);
+        console.error('[ContentAnalysis] Raw stdout:', stdout);
         resolve(null);
       }
     });

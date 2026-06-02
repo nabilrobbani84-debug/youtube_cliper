@@ -3,7 +3,7 @@ const path = require('path');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegStatic = require('ffmpeg-static');
 const ffprobeStatic = require('ffprobe-static');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // Ensure ffmpeg/ffprobe are configured
 if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -46,11 +46,11 @@ function ffprobeVideoDetails(filePath) {
 function getAutoReframeCoords(inputPath, start, duration) {
   return new Promise((resolve) => {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'auto_reframe.py');
-    const cmd = `python "${scriptPath}" "${inputPath}" ${start} ${duration}`;
     
-    exec(cmd, (error, stdout, stderr) => {
+    execFile('python', [scriptPath, inputPath, start.toString(), duration.toString()], (error, stdout, stderr) => {
       if (error) {
         console.error('[AutoReframe] Error running script:', error.message);
+        console.error('[AutoReframe] stderr:', stderr);
         return resolve(null);
       }
       try {
