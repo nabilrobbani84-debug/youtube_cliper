@@ -12,7 +12,7 @@ function buildTargetUrl(pathSegments, searchParams) {
     : backendBaseUrl;
   const joinedPath = pathSegments.join('/');
   const query = searchParams.toString();
-  return `${normalizedBase}/api/${joinedPath}${query ? `?${query}` : ''}`;
+  return `${normalizedBase}/tasks/${joinedPath}${query ? `?${query}` : ''}`;
 }
 
 function forwardHeaders(request) {

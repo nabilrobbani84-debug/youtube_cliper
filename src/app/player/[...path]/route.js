@@ -12,7 +12,7 @@ function buildTargetUrl(pathSegments, searchParams) {
     : backendBaseUrl;
   const joinedPath = pathSegments.join('/');
   const query = searchParams.toString();
-  return `${normalizedBase}/api/${joinedPath}${query ? `?${query}` : ''}`;
+  return `${normalizedBase}/player/${joinedPath}${query ? `?${query}` : ''}`;
 }
 
 function forwardHeaders(request) {
@@ -64,17 +64,5 @@ export async function GET(request, context) {
 }
 
 export async function POST(request, context) {
-  return proxy(request, context);
-}
-
-export async function PUT(request, context) {
-  return proxy(request, context);
-}
-
-export async function DELETE(request, context) {
-  return proxy(request, context);
-}
-
-export async function OPTIONS(request, context) {
   return proxy(request, context);
 }

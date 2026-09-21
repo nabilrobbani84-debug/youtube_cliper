@@ -3,7 +3,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiUrl } from '../lib/api';
 
-const UserContext = createContext();
+const defaultContextValue = { user: { name: '', role: '', credits: 0 }, fetchUser: () => {} };
+const UserContext = createContext(defaultContextValue);
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState({ name: '', role: '', credits: 0 });
@@ -46,5 +47,5 @@ export function UserProvider({ children }) {
 }
 
 export function useUser() {
-  return useContext(UserContext);
+  return useContext(UserContext) ?? defaultContextValue;
 }
