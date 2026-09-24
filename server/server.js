@@ -5,8 +5,11 @@ const crypto = require('crypto');
 const db = require('./db');
 const path = require('path');
 const fs = require('fs');
-const { renderYouTubeSubclips } = require('./clipper');
+const { renderYouTubeSubclips, renderDirectSubclips } = require('./clipper');
 const { exec, execFile } = require('child_process');
+const { detectPythonBin } = require('./pythonBin');
+
+const PYTHON_BIN = detectPythonBin();
 
 const app = express();
 const PORT = 5000;
@@ -470,7 +473,7 @@ function runContentAnalysis(videoId, title, description, duration) {
     const cleanTitle = (title || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ');
     const cleanDesc = (description || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ').substring(0, 300);
     
-    execFile('python', [scriptPath, videoId, cleanTitle, cleanDesc, duration.toString()], (error, stdout, stderr) => {
+    execFile(PYTHON_BIN, [scriptPath, videoId, cleanTitle, cleanDesc, duration.toString()], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         console.error('[ContentAnalysis] Error running script:', error.message);
         console.error('[ContentAnalysis] stderr:', stderr);
@@ -490,6 +493,22 @@ function runContentAnalysis(videoId, title, description, duration) {
       }
     });
   });
+}
+
+// ----------------------------------------------------------------
+// Render dispatcher: choose the YouTube pipeline (yt-dlp) or the direct
+// pipeline (uploaded / non-YouTube video URL) based on the source.
+// Both share the same rendering + burn-in subtitle code.
+// ----------------------------------------------------------------
+async function renderClipsFromSource(mainClipId, { videoId, sourceUrl, renderOptions }) {
+    if (videoId) {
+        return renderYouTubeSubclips(mainClipId, videoId, renderOptions);
+    }
+    // Non-YouTube http(s) URL or local file → direct pipeline.
+    if (sourceUrl && (/^https?:\/\//i.test(sourceUrl) || sourceUrl.startsWith('/'))) {
+        return renderDirectSubclips(mainClipId, sourceUrl, renderOptions);
+    }
+    return [];
 }
 
 // Format seconds to MM:SS string
@@ -530,7 +549,7 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
             try {
                 if (options.url) {
                     const ytInfo = await new Promise((resolve, reject) => {
-                        execFile('python', ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', options.url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                        execFile(PYTHON_BIN, ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', options.url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                             if (err) return reject(err);
                             try {
                                 resolve(JSON.parse(stdout.trim()));
@@ -554,16 +573,20 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
             const isEducational = analysis ? analysis.is_educational : false;
             const customClips = analysis ? analysis.clips : [];
 
-            // Try to render actual subclips from YouTube if possible
+            // Try to render actual subclips (YouTube or direct/uploaded source)
             let rendered = [];
             try {
-                if (videoId) {
-                    rendered = await renderYouTubeSubclips(mainClipId, videoId, { 
+                rendered = await renderClipsFromSource(mainClipId, {
+                    videoId,
+                    sourceUrl: options.url,
+                    renderOptions: {
                         clips: customClips,
                         isEducational,
-                        brandName
-                    });
-                }
+                        brandName,
+                        captions: autoSubtitle,
+                        captionPreset
+                    }
+                });
             } catch (e) {
                 console.error('[simulateClipProcessing] render error', e.message);
                 rendered = [];
@@ -610,7 +633,9 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                     url: clipUrl,
                     download_url: `http://localhost:${PORT}/api/download?url=${encodeURIComponent(clipUrl)}&filename=${encodeURIComponent(title)}.mp4`,
                     title: title,
-                    score: ['9.7', '9.5', '9.3', '9.1', '8.9'][i],
+                    score: (analysisClip && analysisClip.score != null)
+                        ? String(analysisClip.score)
+                        : ['9.7', '9.5', '9.3', '9.1', '8.9'][i],
                     category: category,
                     platform: layoutProfile.platform,
                     editorialNote: isEducational
@@ -699,7 +724,7 @@ async function executeVideoToShortsTask(task, options = {}) {
             if (url) {
                 try {
                     const ytInfo = await new Promise((resolve, reject) => {
-                        execFile('python', ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                        execFile(PYTHON_BIN, ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                             if (err) return reject(err);
                             try {
                                 resolve(JSON.parse(stdout.trim()));
@@ -723,16 +748,20 @@ async function executeVideoToShortsTask(task, options = {}) {
             const isEducational = analysis ? analysis.is_educational : false;
             const customClips = analysis ? analysis.clips : [];
 
-            // Render subclips if possible
+            // Render subclips if possible (YouTube or direct/uploaded source)
             let rendered = [];
             try {
-                if (videoId) {
-                    rendered = await renderYouTubeSubclips(taskId, videoId, { 
+                rendered = await renderClipsFromSource(taskId, {
+                    videoId,
+                    sourceUrl: url,
+                    renderOptions: {
                         clips: customClips,
                         isEducational,
-                        brandName: options.brandName || '@YouClip'
-                    });
-                }
+                        brandName: options.brandName || '@YouClip',
+                        captions: autoSubtitle,
+                        captionPreset
+                    }
+                });
             } catch (e) {
                 console.error('[executeVideoToShortsTask] render error', e.message);
                 rendered = [];
@@ -768,7 +797,9 @@ async function executeVideoToShortsTask(task, options = {}) {
                     download_url: `http://localhost:${PORT}/api/download?url=${encodeURIComponent(clipUrl)}&filename=${encodeURIComponent(title)}.mp4`,
                     duration: clipDuration,
                     durationLabel,
-                    score: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.8', '8.7', '8.5', '8.4', '8.2'][i % 10],
+                    score: (analysisClip && analysisClip.score != null)
+                        ? String(analysisClip.score)
+                        : ['9.8', '9.6', '9.4', '9.2', '9.0', '8.8', '8.7', '8.5', '8.4', '8.2'][i % 10],
                     category: category,
                     platform: layoutProfile.platform,
                     hook: hookText,
