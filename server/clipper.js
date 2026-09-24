@@ -4,10 +4,65 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegStatic = require('ffmpeg-static');
 const ffprobeStatic = require('ffprobe-static');
 const { exec, execFile } = require('child_process');
+const { detectPythonBin } = require('./pythonBin');
+
+const PYTHON_BIN = detectPythonBin();
 
 // Ensure ffmpeg/ffprobe are configured
 if (ffmpegStatic) ffmpeg.setFfmpegPath(ffmpegStatic);
 if (ffprobeStatic && ffprobeStatic.path) ffmpeg.setFfprobePath(ffprobeStatic.path);
+
+// ----------------------------------------------------------------
+// Cross-platform font resolver for the ffmpeg drawtext watermark.
+// Hardcoding a Windows font path caused drawtext to fail on Linux/macOS,
+// which aborted the entire render. We probe common locations and cache
+// the first font that exists.
+// ----------------------------------------------------------------
+let cachedFontFile = null;
+function resolveWatermarkFont() {
+  if (cachedFontFile !== null) return cachedFontFile;
+
+  const envFont = process.env.WATERMARK_FONT_FILE;
+  const candidates = [
+    envFont,
+    // Linux (common)
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf',
+    // Noto (present on this sandbox and many modern distros)
+    '/usr/share/fonts/google-noto/NotoSans-Bold.ttf',
+    '/usr/share/fonts/google-noto/NotoSans-Regular.ttf',
+    // macOS
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/Library/Fonts/Arial.ttf',
+    // Windows
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/arial.ttf'
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        cachedFontFile = candidate;
+        return cachedFontFile;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Empty string => let drawtext fall back to its built-in default font.
+  cachedFontFile = '';
+  return cachedFontFile;
+}
+
+// Escape a path so it is safe inside an ffmpeg filter argument (drawtext).
+function escapeFontPathForFilter(p) {
+  if (!p) return '';
+  // On Windows the drive-letter colon must be escaped for the filtergraph parser.
+  return p.replace(/\\/g, '/').replace(/:/g, '\\:');
+}
 
 // Ensure directories exist
 const tmpDir = path.join(__dirname, 'tmp');
@@ -44,7 +99,7 @@ function downloadYoutubeToFile(videoId, outPath, attempt = 1) {
 
     console.log(`[Clipper] Downloading ${url} (attempt ${attempt})...`);
 
-    execFile('python', args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(PYTHON_BIN, args, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         console.error(`[Clipper] Download attempt ${attempt} failed:`, error.message);
         // Retry once more on failure
@@ -90,7 +145,7 @@ function getAutoReframeCoords(inputPath, start, duration) {
   return new Promise((resolve) => {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'auto_reframe.py');
 
-    execFile('python', [scriptPath, inputPath, start.toString(), duration.toString()], 
+    execFile(PYTHON_BIN, [scriptPath, inputPath, start.toString(), duration.toString()], 
       { timeout: 60000, maxBuffer: 5 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
@@ -132,54 +187,98 @@ async function renderSegment(inputPath, start, duration, outPath, options = {}) 
   const brandName = options.brandName || '';
   const hasAudio  = options.hasAudio !== false;
 
+  const OUT_W = 1080;
+  const OUT_H = 1920;
+  const OUT_AR = OUT_W / OUT_H; // 0.5625 (9:16)
+  const srcAR = srcWidth / srcHeight;
+
   return new Promise((resolve, reject) => {
     // ----------------------------------------------------------------
-    // Step 1: Calculate 9:16 crop from source dimensions
+    // Step 1: Compute a 9:16 crop window that always fits inside the
+    // source, regardless of the source aspect ratio.
+    //
+    //   - Landscape / square source: full height, crop width = h*9/16
+    //   - Source already narrower than 9:16 (portrait phone footage):
+    //     keep full width and crop the height instead so we never ask
+    //     ffmpeg for a crop wider than the frame (which errors out).
     // ----------------------------------------------------------------
-    const targetCropW = Math.round(srcHeight * 9 / 16);
-    let cropX = Math.round((srcWidth - targetCropW) / 2); // default: center
+    let cropW;
+    let cropH;
+    let cropX;
+    let cropY = 0;
 
-    if (reframe && typeof reframe.crop_x === 'number') {
-      // Use face-detected position, clamped to valid range
-      cropX = Math.max(0, Math.min(reframe.crop_x, srcWidth - targetCropW));
+    if (srcAR >= OUT_AR) {
+      // Wide enough — crop horizontally, keep full height.
+      cropH = srcHeight;
+      cropW = Math.round(srcHeight * OUT_AR);
+      cropW = Math.min(cropW, srcWidth);
+      // Even dimensions keep libx264 happy.
+      if (cropW % 2 !== 0) cropW -= 1;
+
+      // Default to a centered crop.
+      cropX = Math.round((srcWidth - cropW) / 2);
+
+      // Face-aware reframe with clamping.
+      if (reframe && typeof reframe.crop_x === 'number' && Number.isFinite(reframe.crop_x)) {
+        cropX = Math.round(reframe.crop_x);
+      }
+      cropX = Math.max(0, Math.min(cropX, srcWidth - cropW));
+    } else {
+      // Taller than 9:16 — crop vertically, keep full width.
+      cropW = srcWidth;
+      cropH = Math.round(srcWidth / OUT_AR);
+      cropH = Math.min(cropH, srcHeight);
+      if (cropH % 2 !== 0) cropH -= 1;
+      cropX = 0;
+      // Bias slightly toward the top third where faces usually sit.
+      cropY = Math.round((srcHeight - cropH) * 0.35);
+      cropY = Math.max(0, Math.min(cropY, srcHeight - cropH));
     }
-
-    // Ensure targetCropW doesn't exceed source width
-    const safeCropW = Math.min(targetCropW, srcWidth);
-    const safeCropH = srcHeight;
 
     // ----------------------------------------------------------------
     // Step 2: Build video filter chain
     // ----------------------------------------------------------------
     const videoFilters = [];
 
-    // 2a. Crop to 9:16 aspect ratio
-    videoFilters.push(`crop=${safeCropW}:${safeCropH}:${cropX}:0`);
+    // 2a. Crop to a valid 9:16 region.
+    videoFilters.push(`crop=${cropW}:${cropH}:${cropX}:${cropY}`);
 
-    // 2b. Scale to final output resolution (1080×1920 for 9:16 Shorts)
-    videoFilters.push(`scale=1080:1920:flags=lanczos`);
+    // 2b. Scale to final output resolution (1080×1920 for 9:16 Shorts).
+    videoFilters.push(`scale=${OUT_W}:${OUT_H}:flags=lanczos`);
 
-    // 2c. Color grading — educational gets subtle, viral gets punchy
+    // 2c. Color grading — educational gets subtle, viral gets punchy.
     if (isEducational) {
-      videoFilters.push(`eq=contrast=1.02:saturation=1.05:gamma=0.98:brightness=0.01`);
+      videoFilters.push(`eq=contrast=1.03:saturation=1.06:gamma=0.98:brightness=0.01`);
     } else {
-      videoFilters.push(`eq=contrast=1.08:saturation=1.20:gamma=0.93:brightness=0.02`);
+      videoFilters.push(`eq=contrast=1.08:saturation=1.18:gamma=0.94:brightness=0.02`);
     }
 
-    // 2d. Sharpen slightly for crisp output at 1080p
+    // 2d. Sharpen slightly for crisp output at 1080p.
     videoFilters.push(`unsharp=5:5:0.8:5:5:0.0`);
 
-    // 2e. Watermark / brand text
-    const brandText = brandName
+    // 2e. Optional burned-in subtitles (ASS/SRT file path supplied by caller).
+    if (options.subtitlePath && fs.existsSync(options.subtitlePath)) {
+      const subEsc = escapeFontPathForFilter(options.subtitlePath);
+      videoFilters.push(`subtitles='${subEsc}'`);
+    }
+
+    // 2f. Watermark / brand text — cross-platform font resolution.
+    const brandText = (brandName
       ? (brandName.startsWith('@') ? brandName : `@${brandName}`)
-      : '@YouClip';
-    // Use a safe cross-platform font fallback
-    const fontPath = 'C\\\\:/Windows/Fonts/arial.ttf';
+      : '@YouClip')
+      // Escape characters that would break the drawtext argument.
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\u2019")
+      .replace(/:/g, '\\:')
+      .replace(/%/g, '\\%');
+
+    const fontFile = resolveWatermarkFont();
+    const fontArg = fontFile ? `fontfile='${escapeFontPathForFilter(fontFile)}':` : '';
     videoFilters.push(
-      `drawtext=text='${brandText}':fontfile='${fontPath}':fontsize=38:fontcolor=white@0.75:shadowcolor=black@0.55:shadowx=2:shadowy=2:x=60:y=h-80`
+      `drawtext=text='${brandText}':${fontArg}fontsize=40:fontcolor=white@0.82:box=1:boxcolor=black@0.28:boxborderw=10:shadowcolor=black@0.6:shadowx=2:shadowy=2:x=48:y=h-96`
     );
 
-    // 2f. Fade transitions
+    // 2g. Fade transitions.
     const fadeInDuration  = 0.4;
     const fadeOutDuration = 0.5;
     const fadeOutStart    = Math.max(0, duration - fadeOutDuration);
@@ -202,11 +301,13 @@ async function renderSegment(inputPath, start, duration, outPath, options = {}) 
       .videoFilters(videoFilters.join(','))
       .outputOptions([
         '-c:v libx264',
-        '-preset fast',           // faster than 'slow' with near same quality
-        '-crf 20',                // high quality (lower = better, 18-23 is good range)
+        '-preset medium',         // better quality/size tradeoff than 'fast'
+        '-crf 19',                // visually lossless-ish for short-form
         '-profile:v high',
         '-level 4.1',
         '-pix_fmt yuv420p',
+        '-r 30',                  // consistent 30fps for social platforms
+        '-g 60',                  // 2s keyframe interval — good for scrubbing/streaming
         '-threads 0',             // auto-detect optimal thread count
         '-movflags +faststart'    // allows streaming before full download
       ]);
@@ -214,9 +315,9 @@ async function renderSegment(inputPath, start, duration, outPath, options = {}) 
     if (hasAudio && audioFilters.length > 0) {
       cmd
         .audioFilters(audioFilters.join(','))
-        .outputOptions(['-c:a aac', '-b:a 192k', '-ar 48000']);
+        .outputOptions(['-c:a aac', '-b:a 192k', '-ar 48000', '-ac 2']);
     } else if (hasAudio) {
-      cmd.outputOptions(['-c:a aac', '-b:a 192k', '-ar 48000']);
+      cmd.outputOptions(['-c:a aac', '-b:a 192k', '-ar 48000', '-ac 2']);
     } else {
       cmd.outputOptions(['-an']); // no audio
     }

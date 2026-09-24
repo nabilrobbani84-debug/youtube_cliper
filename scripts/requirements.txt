@@ -1,0 +1,10 @@
+# Python dependencies for the YouClip processing scripts.
+# Install with:  python3 -m pip install -r scripts/requirements.txt
+#
+# yt-dlp      : downloads the source YouTube video and fetches metadata
+# opencv      : face detection for auto-reframe (auto_reframe.py)
+# transcript  : pulls captions for AI clip selection (analyze_content.py)
+
+yt-dlp>=2024.8.6
+opencv-python-headless>=4.9.0
+youtube-transcript-api>=0.6.2

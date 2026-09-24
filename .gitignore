@@ -36,3 +36,8 @@ next-env.d.ts
 .codex-logs/
 server/tmp/
 *.sqlite
+
+
+# python
+__pycache__/
+*.pyc

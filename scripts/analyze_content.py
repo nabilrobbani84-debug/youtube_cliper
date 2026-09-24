@@ -2,7 +2,66 @@ import sys
 import json
 import os
 import re
-from youtube_transcript_api import YouTubeTranscriptApi
+
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except Exception:
+    YouTubeTranscriptApi = None
+
+
+def _normalize_entry(item):
+    """Return a plain dict {text, start, duration} from either a dict or an
+    object, tolerating the API changes across youtube_transcript_api versions."""
+    if isinstance(item, dict):
+        return {
+            "text": item.get("text", ""),
+            "start": float(item.get("start", 0) or 0),
+            "duration": float(item.get("duration", 0) or 0),
+        }
+    # Newer versions return FetchedTranscriptSnippet objects with attributes.
+    return {
+        "text": getattr(item, "text", "") or "",
+        "start": float(getattr(item, "start", 0) or 0),
+        "duration": float(getattr(item, "duration", 0) or 0),
+    }
+
+
+def fetch_transcript(video_id):
+    """Fetch a transcript across the many youtube_transcript_api versions.
+    Returns a list of {text, start, duration} dicts (possibly empty)."""
+    if YouTubeTranscriptApi is None:
+        return []
+
+    languages = ["id", "en"]
+
+    # Strategy 1: legacy static get_transcript()
+    try:
+        raw = YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+        return [_normalize_entry(x) for x in raw]
+    except Exception:
+        pass
+
+    # Strategy 2: new instance API .fetch()
+    try:
+        api = YouTubeTranscriptApi()
+        raw = api.fetch(video_id, languages=languages)
+        return [_normalize_entry(x) for x in raw]
+    except Exception:
+        pass
+
+    # Strategy 3: list_transcripts() then take the first available
+    try:
+        listing = YouTubeTranscriptApi.list_transcripts(video_id)
+        for t in listing:
+            try:
+                return [_normalize_entry(x) for x in t.fetch()]
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return []
+
 
 def score_segment(seg):
     """Score a segment by word count and sentence completeness — higher = better."""
@@ -26,18 +85,8 @@ def analyze_video_content(video_id, title, description, total_duration, num_clip
     text_to_scan = (title + " " + description).lower()
     is_educational = any(kw in text_to_scan for kw in edu_keywords)
 
-    transcript = []
-    try:
-        # Fetch transcript, try Indonesian first, fallback to English, then auto-generated
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['id', 'en'])
-    except Exception:
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            for t in transcript_list:
-                transcript = t.fetch()
-                break
-        except Exception:
-            pass
+    # Fetch transcript, tolerant of every youtube_transcript_api version.
+    transcript = fetch_transcript(video_id)
 
     # ----------------------------------------------------------------
     # Target clip duration: 30-60 seconds (ideal for Shorts/Reels)

@@ -7,6 +7,9 @@ const path = require('path');
 const fs = require('fs');
 const { renderYouTubeSubclips } = require('./clipper');
 const { exec, execFile } = require('child_process');
+const { detectPythonBin } = require('./pythonBin');
+
+const PYTHON_BIN = detectPythonBin();
 
 const app = express();
 const PORT = 5000;
@@ -470,7 +473,7 @@ function runContentAnalysis(videoId, title, description, duration) {
     const cleanTitle = (title || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ');
     const cleanDesc = (description || '').replace(/[^a-zA-Z0-9\s-_[\]]/g, '').replace(/\r?\n|\r/g, ' ').substring(0, 300);
     
-    execFile('python', [scriptPath, videoId, cleanTitle, cleanDesc, duration.toString()], (error, stdout, stderr) => {
+    execFile(PYTHON_BIN, [scriptPath, videoId, cleanTitle, cleanDesc, duration.toString()], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         console.error('[ContentAnalysis] Error running script:', error.message);
         console.error('[ContentAnalysis] stderr:', stderr);
@@ -530,7 +533,7 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
             try {
                 if (options.url) {
                     const ytInfo = await new Promise((resolve, reject) => {
-                        execFile('python', ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', options.url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                        execFile(PYTHON_BIN, ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', options.url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                             if (err) return reject(err);
                             try {
                                 resolve(JSON.parse(stdout.trim()));
@@ -699,7 +702,7 @@ async function executeVideoToShortsTask(task, options = {}) {
             if (url) {
                 try {
                     const ytInfo = await new Promise((resolve, reject) => {
-                        execFile('python', ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                        execFile(PYTHON_BIN, ['-m', 'yt_dlp', '--dump-json', '--skip-download', '--no-playlist', '--js-runtimes', 'nodejs', url], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                             if (err) return reject(err);
                             try {
                                 resolve(JSON.parse(stdout.trim()));
