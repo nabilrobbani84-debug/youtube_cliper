@@ -108,6 +108,11 @@ function buildAssFile(subtitles, clipDuration, outPath, options = {}) {
   const primary = options.primaryColor || colors.primary;
   const accent = options.accentColor || colors.accent;
 
+  // Do the lines carry REAL per-word / per-line timings (from the transcript)?
+  const hasRealTiming = lines.every(
+    (l) => l && typeof l === 'object' && Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start
+  );
+
   // Weight each line's screen time by its character count (min weight 1).
   const weights = lines.map((l) => {
     const t = typeof l === 'string' ? l : (l && l.text) || '';
@@ -145,25 +150,37 @@ function buildAssFile(subtitles, clipDuration, outPath, options = {}) {
 
   const events = [];
   let cursor = 0;
+
+  const renderWord = (word) => {
+    const clean = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
+    const isCaps = word === word.toUpperCase() && word.replace(/[^\p{L}]/gu, '').length > 2;
+    if (emphasisAll.has(clean) || isCaps) {
+      return `{\\c${accent}\\b1}${word}{\\c${primary}\\b0}`;
+    }
+    return word;
+  };
+
   lines.forEach((line, idx) => {
     const raw = typeof line === 'string' ? line : (line && line.text) || '';
-    const share = (weights[idx] / totalWeight) * clipDuration;
-    const start = cursor;
-    const end = Math.min(clipDuration, cursor + share);
-    cursor = end;
 
-    // Recolour emphasised words inline.
+    // Determine this line's on-screen window.
+    let start;
+    let end;
+    if (hasRealTiming) {
+      // Use the transcript-derived timing, clamped to the clip window.
+      start = Math.max(0, Math.min(line.start, clipDuration));
+      end = Math.max(start + 0.4, Math.min(line.end, clipDuration));
+    } else {
+      const share = (weights[idx] / totalWeight) * clipDuration;
+      start = cursor;
+      end = Math.min(clipDuration, cursor + share);
+      cursor = end;
+    }
+
     const rendered = escapeAssText(raw)
       .split(' ')
       .filter(Boolean)
-      .map((word) => {
-        const clean = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
-        const isCaps = word === word.toUpperCase() && word.replace(/[^\p{L}]/gu, '').length > 2;
-        if (emphasisAll.has(clean) || isCaps) {
-          return `{\\c${accent}\\b1}${word}{\\c${primary}}`;
-        }
-        return word;
-      })
+      .map(renderWord)
       .join(' ');
 
     // Pop-in scale animation for a lively, modern caption feel.

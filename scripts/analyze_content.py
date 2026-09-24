@@ -74,6 +74,128 @@ def score_segment(seg):
     duration_bonus = 1.3 if seg['duration'] >= 25.0 else 1.0
     return word_count * completeness_bonus * duration_bonus
 
+
+# Words that tend to signal a strong hook / high-retention moment.
+HOOK_KEYWORDS = [
+    "rahasia", "ternyata", "jangan", "kesalahan", "penting", "hati-hati",
+    "terbaik", "gratis", "cara", "tips", "trik", "kenapa", "bagaimana",
+    "harus", "wajib", "gila", "shock", "viral", "fakta", "bukti", "hasil",
+    "secret", "mistake", "never", "always", "best", "how", "why", "stop",
+    "warning", "proven", "truth", "hack", "money", "free", "you", "now"
+]
+
+
+def compute_virality_score(seg, total_duration):
+    """
+    Estimate a 0-10 virality/engagement score from real transcript signals:
+      - speaking density (words per second) → energetic, information-rich
+      - hook keyword presence → attention grabbers
+      - sentence completeness → clean, self-contained clip
+      - ideal duration window (25-50s) → best for Shorts/Reels retention
+    Deterministic (no randomness) so results are stable and explainable.
+    """
+    text = (seg.get('text') or '').strip()
+    words = text.split()
+    word_count = len(words)
+    duration = max(1.0, float(seg.get('duration') or 1.0))
+
+    if word_count == 0:
+        return 6.5  # neutral baseline for non-transcript fallback clips
+
+    # 1. Speaking density: ~2.2 words/sec is lively; normalise around that.
+    wps = word_count / duration
+    density_score = max(0.0, min(1.0, wps / 2.6))
+
+    # 2. Hook keywords present in the segment.
+    lowered = text.lower()
+    hook_hits = sum(1 for kw in HOOK_KEYWORDS if kw in lowered)
+    hook_score = min(1.0, hook_hits / 4.0)
+
+    # 3. Sentence completeness.
+    completeness = 1.0 if text.rstrip().endswith(('.', '!', '?')) else 0.55
+
+    # 4. Duration sweet spot (peaks around 25-50s).
+    if 25.0 <= duration <= 50.0:
+        duration_score = 1.0
+    elif duration < 25.0:
+        duration_score = max(0.4, duration / 25.0)
+    else:
+        duration_score = max(0.5, 1.0 - (duration - 50.0) / 60.0)
+
+    # Weighted blend → 0..1
+    blended = (
+        0.34 * density_score +
+        0.30 * hook_score +
+        0.16 * completeness +
+        0.20 * duration_score
+    )
+
+    # Map to a friendly 7.0 - 9.9 range (matches the product's scoring UI).
+    score = 7.0 + blended * 2.9
+    return round(min(9.9, max(6.5, score)), 1)
+
+
+def build_word_timeline(entries, seg_start, hook_keywords):
+    """
+    Convert raw transcript entries (each {text,start,duration}) into subtitle
+    lines with REAL per-word timings relative to the clip start.
+    Groups words into readable <=45-char lines and estimates per-word timing
+    by distributing each transcript entry's duration across its own words.
+    Returns a list of {text, emphasis, start, end, words:[{word,start,end,emphasized}]}.
+    """
+    lines = []
+    cur_words = []          # [{word, start, end, emphasized}]
+    cur_chars = 0
+
+    def flush():
+        nonlocal cur_words, cur_chars
+        if not cur_words:
+            return
+        text = " ".join(w["word"] for w in cur_words)
+        emphasis = [w["word"] for w in cur_words if w["emphasized"]]
+        if not emphasis:
+            emphasis = [cur_words[0]["word"]]
+        lines.append({
+            "text": text,
+            "emphasis": emphasis,
+            "start": round(cur_words[0]["start"], 2),
+            "end": round(cur_words[-1]["end"], 2),
+            "words": cur_words
+        })
+        cur_words = []
+        cur_chars = 0
+
+    for entry in entries or []:
+        etext = re.sub(r'\[.*?\]', '', entry.get("text", "")).strip()
+        ewords = etext.split()
+        if not ewords:
+            continue
+        e_start = float(entry.get("start", 0) or 0) - seg_start
+        e_dur = float(entry.get("duration", 0) or 0)
+        if e_dur <= 0:
+            e_dur = max(0.6, len(ewords) * 0.28)
+        per = e_dur / len(ewords)
+
+        for wi, word in enumerate(ewords):
+            w_start = max(0.0, e_start + wi * per)
+            w_end = w_start + per
+            clean = re.sub(r'[^\w-]', '', word, flags=re.UNICODE).lower()
+            is_caps = word.isupper() and len(re.sub(r'[^\w]', '', word)) > 2
+            emphasized = is_caps or any(kw == clean or kw in clean for kw in hook_keywords)
+
+            if cur_chars + len(word) + 1 > 45 and cur_words:
+                flush()
+            cur_words.append({
+                "word": word,
+                "start": round(w_start, 2),
+                "end": round(w_end, 2),
+                "emphasized": bool(emphasized)
+            })
+            cur_chars += len(word) + 1
+
+    flush()
+    return lines[:8]  # cap lines to keep captions readable
+
 def analyze_video_content(video_id, title, description, total_duration, num_clips=5):
     # Detect if video is educational/narrative based on title & description
     edu_keywords = [
@@ -121,7 +243,8 @@ def analyze_video_content(video_id, title, description, total_duration, num_clip
                 segments.append({
                     "start": round(segment_start, 2),
                     "duration": round(min(segment_duration, TARGET_MAX), 2),
-                    "text": full_text
+                    "text": full_text,
+                    "entries": list(current_segment)
                 })
                 # Begin next segment after the gap
                 if i < len(transcript) - 1:
@@ -136,7 +259,8 @@ def analyze_video_content(video_id, title, description, total_duration, num_clip
                 segments.append({
                     "start": round(segment_start, 2),
                     "duration": round(seg_dur, 2),
-                    "text": full_text
+                    "text": full_text,
+                    "entries": list(current_segment)
                 })
 
     # ----------------------------------------------------------------
@@ -214,27 +338,37 @@ def analyze_video_content(video_id, title, description, total_duration, num_clip
         else:
             title_format = f"{prefix} {clean_yt_title} (Part {i + 1})"
 
-        # Build subtitle entries (split text into ≤45-char chunks for readability)
-        subtitle_chunks = []
-        chunk_words = []
-        char_count = 0
-        for word in words:
-            if char_count + len(word) + 1 > 45 and chunk_words:
+        # Prefer REAL per-word timing derived from the transcript entries so
+        # burned-in captions stay in sync with the speech. Fall back to a
+        # simple length-based chunking when timing isn't available.
+        timed_lines = build_word_timeline(seg.get("entries"), seg.get("start", 0), HOOK_KEYWORDS)
+
+        if timed_lines:
+            simulated_subs = timed_lines
+        else:
+            subtitle_chunks = []
+            chunk_words = []
+            char_count = 0
+            for word in words:
+                if char_count + len(word) + 1 > 45 and chunk_words:
+                    subtitle_chunks.append({
+                        "text": " ".join(chunk_words),
+                        "emphasis": [chunk_words[0]] if chunk_words else []
+                    })
+                    chunk_words = [word]
+                    char_count = len(word)
+                else:
+                    chunk_words.append(word)
+                    char_count += len(word) + 1
+            if chunk_words:
                 subtitle_chunks.append({
                     "text": " ".join(chunk_words),
                     "emphasis": [chunk_words[0]] if chunk_words else []
                 })
-                chunk_words = [word]
-                char_count = len(word)
-            else:
-                chunk_words.append(word)
-                char_count += len(word) + 1
-        if chunk_words:
-            subtitle_chunks.append({
-                "text": " ".join(chunk_words),
-                "emphasis": [chunk_words[0]] if chunk_words else []
-            })
-        simulated_subs = subtitle_chunks[:6] if subtitle_chunks else [{"text": clean_text[:45], "emphasis": []}]
+            simulated_subs = subtitle_chunks[:6] if subtitle_chunks else [{"text": clean_text[:45], "emphasis": []}]
+
+        # Real virality/engagement score from transcript signals.
+        clip_score = compute_virality_score(seg, total_duration)
 
         clips.append({
             "start": seg['start'],
@@ -244,8 +378,13 @@ def analyze_video_content(video_id, title, description, total_duration, num_clip
             "editorialPriority": categories[min(i, len(categories) - 1)],
             "clipLabel": clip_labels[min(i, len(clip_labels) - 1)],
             "subtitles": simulated_subs,
+            "score": clip_score,
+            "has_word_timing": bool(timed_lines),
             "hook_text": f"Hook terkuat: {title_format} | {title}"
         })
+
+    # Rank so the highest-scoring clip is presented first (Hero Clip).
+    clips.sort(key=lambda c: c.get("score", 0), reverse=True)
 
     print(json.dumps({
         "is_educational": is_educational,

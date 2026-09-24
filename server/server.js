@@ -633,7 +633,9 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
                     url: clipUrl,
                     download_url: `http://localhost:${PORT}/api/download?url=${encodeURIComponent(clipUrl)}&filename=${encodeURIComponent(title)}.mp4`,
                     title: title,
-                    score: ['9.7', '9.5', '9.3', '9.1', '8.9'][i],
+                    score: (analysisClip && analysisClip.score != null)
+                        ? String(analysisClip.score)
+                        : ['9.7', '9.5', '9.3', '9.1', '8.9'][i],
                     category: category,
                     platform: layoutProfile.platform,
                     editorialNote: isEducational
@@ -795,7 +797,9 @@ async function executeVideoToShortsTask(task, options = {}) {
                     download_url: `http://localhost:${PORT}/api/download?url=${encodeURIComponent(clipUrl)}&filename=${encodeURIComponent(title)}.mp4`,
                     duration: clipDuration,
                     durationLabel,
-                    score: ['9.8', '9.6', '9.4', '9.2', '9.0', '8.8', '8.7', '8.5', '8.4', '8.2'][i % 10],
+                    score: (analysisClip && analysisClip.score != null)
+                        ? String(analysisClip.score)
+                        : ['9.8', '9.6', '9.4', '9.2', '9.0', '8.8', '8.7', '8.5', '8.4', '8.2'][i % 10],
                     category: category,
                     platform: layoutProfile.platform,
                     hook: hookText,
