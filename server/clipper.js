@@ -64,6 +64,120 @@ function escapeFontPathForFilter(p) {
   return p.replace(/\\/g, '/').replace(/:/g, '\\:');
 }
 
+// ----------------------------------------------------------------
+// Burned-in subtitles (.ass) generation
+// ----------------------------------------------------------------
+// Preset -> primary/emphasis colours. ASS colours are &HAABBGGRR (BGR!).
+const CAPTION_PRESET_COLORS = {
+  viral_neon:  { primary: '&H00FFFFFF', accent: '&H0015C0FA' }, // white + amber
+  clean_cinema:{ primary: '&H00FAFAF8', accent: '&H00FAFAF8' },
+  creator_pop: { primary: '&H00FFFFFF', accent: '&H007E5FFB' }, // white + rose
+  custom_brand:{ primary: '&H00FFFFFF', accent: '&H0022C55E' }
+};
+
+function formatAssTime(totalSeconds) {
+  const clamped = Math.max(0, totalSeconds);
+  const h = Math.floor(clamped / 3600);
+  const m = Math.floor((clamped % 3600) / 60);
+  const s = Math.floor(clamped % 60);
+  const cs = Math.round((clamped - Math.floor(clamped)) * 100);
+  const safeCs = cs === 100 ? 99 : cs;
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(safeCs).padStart(2, '0')}`;
+}
+
+function escapeAssText(text) {
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\{/g, '(')
+    .replace(/\}/g, ')')
+    .replace(/\r?\n/g, ' ')
+    .trim();
+}
+
+/**
+ * Distribute subtitle lines across [0, clipDuration] weighted by text length,
+ * then emit a styled ASS file. Emphasis words are recoloured inline.
+ * Returns the written file path, or null when there is nothing to render.
+ */
+function buildAssFile(subtitles, clipDuration, outPath, options = {}) {
+  const lines = Array.isArray(subtitles) ? subtitles.filter(Boolean) : [];
+  if (lines.length === 0 || !clipDuration || clipDuration <= 0) return null;
+
+  const preset = options.captionPreset || 'viral_neon';
+  const colors = CAPTION_PRESET_COLORS[preset] || CAPTION_PRESET_COLORS.viral_neon;
+  const primary = options.primaryColor || colors.primary;
+  const accent = options.accentColor || colors.accent;
+
+  // Weight each line's screen time by its character count (min weight 1).
+  const weights = lines.map((l) => {
+    const t = typeof l === 'string' ? l : (l && l.text) || '';
+    return Math.max(1, t.trim().length);
+  });
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || lines.length;
+
+  // Video is scaled to 1080x1920, so author the ASS in that space.
+  const PLAY_W = 1080;
+  const PLAY_H = 1920;
+  const fontSize = Math.round(PLAY_H * 0.045); // ~86px, bold social caption
+
+  const header = [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${PLAY_W}`,
+    `PlayResY: ${PLAY_H}`,
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    // Alignment 2 = bottom-center; MarginV lifts captions off the very bottom.
+    `Style: Default,Sans,${fontSize},${primary},&H000000FF,&H00101010,&H64000000,-1,0,0,0,100,100,0,0,1,4,3,2,90,90,320,1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, MarginL, MarginR, MarginV, Effect, Text'
+  ];
+
+  const emphasisAll = new Set();
+  lines.forEach((l) => {
+    if (l && Array.isArray(l.emphasis)) {
+      l.emphasis.forEach((w) => emphasisAll.add(String(w).replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase()));
+    }
+  });
+
+  const events = [];
+  let cursor = 0;
+  lines.forEach((line, idx) => {
+    const raw = typeof line === 'string' ? line : (line && line.text) || '';
+    const share = (weights[idx] / totalWeight) * clipDuration;
+    const start = cursor;
+    const end = Math.min(clipDuration, cursor + share);
+    cursor = end;
+
+    // Recolour emphasised words inline.
+    const rendered = escapeAssText(raw)
+      .split(' ')
+      .filter(Boolean)
+      .map((word) => {
+        const clean = word.replace(/[^\p{L}\p{N}-]/gu, '').toLowerCase();
+        const isCaps = word === word.toUpperCase() && word.replace(/[^\p{L}]/gu, '').length > 2;
+        if (emphasisAll.has(clean) || isCaps) {
+          return `{\\c${accent}\\b1}${word}{\\c${primary}}`;
+        }
+        return word;
+      })
+      .join(' ');
+
+    // Pop-in scale animation for a lively, modern caption feel.
+    const anim = '{\\fad(120,120)\\t(0,180,\\fscx112\\fscy112)\\t(180,320,\\fscx100\\fscy100)}';
+    events.push(
+      `Dialogue: 0,${formatAssTime(start)},${formatAssTime(end)},Default,,0,0,0,,${anim}${rendered}`
+    );
+  });
+
+  const content = header.join('\n') + '\n' + events.join('\n') + '\n';
+  fs.writeFileSync(outPath, content, 'utf8');
+  return outPath;
+}
+
 // Ensure directories exist
 const tmpDir = path.join(__dirname, 'tmp');
 const rendersDir = path.join(__dirname, 'public', 'renders');
@@ -350,14 +464,21 @@ async function renderYouTubeSubclips(mainClipId, videoId, opts = {}) {
   const clips       = opts.clips || [];
   const isEducational = opts.isEducational || false;
   const brandName   = opts.brandName || '';
+  const captions    = opts.captions !== false; // burn-in subtitles by default
+  const captionPreset = opts.captionPreset || 'viral_neon';
+  // Optional pre-resolved source (direct/uploaded video) — skips YouTube download.
+  const providedInput = opts.inputFile || null;
   const results     = [];
 
-  if (!videoId) return results;
+  if (!videoId && !providedInput) return results;
 
-  const inputFile = path.join(tmpDir, `${mainClipId}.mp4`);
+  const inputFile = providedInput || path.join(tmpDir, `${mainClipId}.mp4`);
+  const ownsInputFile = !providedInput; // only delete files we downloaded ourselves
 
   try {
-    await downloadYoutubeToFile(videoId, inputFile);
+    if (!providedInput) {
+      await downloadYoutubeToFile(videoId, inputFile);
+    }
 
     // Probe source video details
     const { width, height, duration, hasAudio } = await ffprobeVideoDetails(inputFile);
@@ -395,35 +516,128 @@ async function renderYouTubeSubclips(mainClipId, videoId, opts = {}) {
 
       console.log(`[Clipper] Rendering clip ${i + 1}/${clipsToRender.length}: start=${safeStart}s duration=${safeDuration}s`);
 
+      // Build a per-clip burned-in subtitle track when captions are enabled.
+      let subtitlePath = null;
+      if (captions && clipInfo && Array.isArray(clipInfo.subtitles) && clipInfo.subtitles.length > 0) {
+        try {
+          const assPath = path.join(tmpDir, `${mainClipId}-${i + 1}.ass`);
+          subtitlePath = buildAssFile(clipInfo.subtitles, safeDuration, assPath, {
+            captionPreset,
+            accentColor: clipInfo.accentColor,
+            primaryColor: clipInfo.primaryColor
+          });
+        } catch (e) {
+          console.warn(`[Clipper] Failed to build subtitles for clip ${i + 1}:`, e.message);
+          subtitlePath = null;
+        }
+      }
+
       try {
         await renderSegment(inputFile, safeStart, safeDuration, outPath, {
           isEducational,
           width,
           height,
           hasAudio,
-          brandName
+          brandName,
+          subtitlePath
         });
         results.push({ file: outName, url: `/renders/${outName}`, duration: safeDuration });
       } catch (e) {
         console.error(`[Clipper] Segment ${i + 1} render failed:`, e.message);
         // Continue to next clip instead of aborting all
+      } finally {
+        // Remove the temporary .ass file.
+        if (subtitlePath) {
+          try { if (fs.existsSync(subtitlePath)) fs.unlinkSync(subtitlePath); } catch (e) { /* ignore */ }
+        }
       }
     }
   } catch (err) {
     console.error('[Clipper] render pipeline failed:', err.message);
   } finally {
-    // Clean up the large source file
-    try {
-      if (fs.existsSync(inputFile)) {
-        fs.unlinkSync(inputFile);
-        console.log(`[Clipper] Cleaned up temp file: ${inputFile}`);
+    // Clean up the large source file (only if we downloaded it ourselves).
+    if (ownsInputFile) {
+      try {
+        if (fs.existsSync(inputFile)) {
+          fs.unlinkSync(inputFile);
+          console.log(`[Clipper] Cleaned up temp file: ${inputFile}`);
+        }
+      } catch (e) {
+        console.warn('[Clipper] Failed to clean temp file:', e.message);
       }
-    } catch(e) {
-      console.warn('[Clipper] Failed to clean temp file:', e.message);
     }
   }
 
   return results;
 }
 
-module.exports = { renderYouTubeSubclips };
+/**
+ * Download a direct (non-YouTube) video URL to a temp file using ffmpeg,
+ * then run the same subclip render pipeline. Supports uploaded assets and
+ * any http(s) media URL. Local file paths are used in place directly.
+ */
+function downloadDirectVideoToFile(sourceUrl, outPath) {
+  return new Promise((resolve, reject) => {
+    // Already a local file on disk — use as-is.
+    if (!/^https?:\/\//i.test(sourceUrl)) {
+      if (fs.existsSync(sourceUrl)) return resolve(sourceUrl);
+      return reject(new Error(`Local source file not found: ${sourceUrl}`));
+    }
+
+    console.log(`[Clipper] Fetching direct video: ${sourceUrl}`);
+    ffmpeg(sourceUrl)
+      .outputOptions(['-c copy']) // fast remux; no re-encode of the master
+      .output(outPath)
+      .on('end', () => resolve(outPath))
+      .on('error', (err) => {
+        // Some sources can't be stream-copied; retry with a re-encode.
+        console.warn('[Clipper] Direct copy failed, retrying with re-encode:', err.message);
+        ffmpeg(sourceUrl)
+          .outputOptions(['-c:v libx264', '-preset veryfast', '-crf 20', '-c:a aac'])
+          .output(outPath)
+          .on('end', () => resolve(outPath))
+          .on('error', (err2) => reject(err2))
+          .run();
+      })
+      .run();
+  });
+}
+
+/**
+ * Render vertical subclips from a direct/uploaded video source URL (not
+ * a YouTube ID). Mirrors renderYouTubeSubclips but skips yt-dlp.
+ */
+async function renderDirectSubclips(mainClipId, sourceUrl, opts = {}) {
+  const results = [];
+  if (!sourceUrl) return results;
+
+  const isRemote = /^https?:\/\//i.test(sourceUrl);
+  const inputFile = isRemote ? path.join(tmpDir, `${mainClipId}-src.mp4`) : sourceUrl;
+
+  try {
+    if (isRemote) {
+      await downloadDirectVideoToFile(sourceUrl, inputFile);
+    } else if (!fs.existsSync(inputFile)) {
+      throw new Error(`Source file not found: ${inputFile}`);
+    }
+
+    // Reuse the shared pipeline by passing the resolved local file.
+    const rendered = await renderYouTubeSubclips(mainClipId, null, {
+      ...opts,
+      inputFile
+    });
+    results.push(...rendered);
+  } catch (err) {
+    console.error('[Clipper] direct render pipeline failed:', err.message);
+  } finally {
+    if (isRemote) {
+      try {
+        if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  return results;
+}
+
+module.exports = { renderYouTubeSubclips, renderDirectSubclips };

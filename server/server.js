@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const db = require('./db');
 const path = require('path');
 const fs = require('fs');
-const { renderYouTubeSubclips } = require('./clipper');
+const { renderYouTubeSubclips, renderDirectSubclips } = require('./clipper');
 const { exec, execFile } = require('child_process');
 const { detectPythonBin } = require('./pythonBin');
 
@@ -495,6 +495,22 @@ function runContentAnalysis(videoId, title, description, duration) {
   });
 }
 
+// ----------------------------------------------------------------
+// Render dispatcher: choose the YouTube pipeline (yt-dlp) or the direct
+// pipeline (uploaded / non-YouTube video URL) based on the source.
+// Both share the same rendering + burn-in subtitle code.
+// ----------------------------------------------------------------
+async function renderClipsFromSource(mainClipId, { videoId, sourceUrl, renderOptions }) {
+    if (videoId) {
+        return renderYouTubeSubclips(mainClipId, videoId, renderOptions);
+    }
+    // Non-YouTube http(s) URL or local file → direct pipeline.
+    if (sourceUrl && (/^https?:\/\//i.test(sourceUrl) || sourceUrl.startsWith('/'))) {
+        return renderDirectSubclips(mainClipId, sourceUrl, renderOptions);
+    }
+    return [];
+}
+
 // Format seconds to MM:SS string
 function formatDuration(seconds) {
     if (!seconds || isNaN(seconds)) return '00:30';
@@ -557,16 +573,20 @@ function simulateClipProcessing(mainClipId, videoId, options = {}) {
             const isEducational = analysis ? analysis.is_educational : false;
             const customClips = analysis ? analysis.clips : [];
 
-            // Try to render actual subclips from YouTube if possible
+            // Try to render actual subclips (YouTube or direct/uploaded source)
             let rendered = [];
             try {
-                if (videoId) {
-                    rendered = await renderYouTubeSubclips(mainClipId, videoId, { 
+                rendered = await renderClipsFromSource(mainClipId, {
+                    videoId,
+                    sourceUrl: options.url,
+                    renderOptions: {
                         clips: customClips,
                         isEducational,
-                        brandName
-                    });
-                }
+                        brandName,
+                        captions: autoSubtitle,
+                        captionPreset
+                    }
+                });
             } catch (e) {
                 console.error('[simulateClipProcessing] render error', e.message);
                 rendered = [];
@@ -726,16 +746,20 @@ async function executeVideoToShortsTask(task, options = {}) {
             const isEducational = analysis ? analysis.is_educational : false;
             const customClips = analysis ? analysis.clips : [];
 
-            // Render subclips if possible
+            // Render subclips if possible (YouTube or direct/uploaded source)
             let rendered = [];
             try {
-                if (videoId) {
-                    rendered = await renderYouTubeSubclips(taskId, videoId, { 
+                rendered = await renderClipsFromSource(taskId, {
+                    videoId,
+                    sourceUrl: url,
+                    renderOptions: {
                         clips: customClips,
                         isEducational,
-                        brandName: options.brandName || '@YouClip'
-                    });
-                }
+                        brandName: options.brandName || '@YouClip',
+                        captions: autoSubtitle,
+                        captionPreset
+                    }
+                });
             } catch (e) {
                 console.error('[executeVideoToShortsTask] render error', e.message);
                 rendered = [];
